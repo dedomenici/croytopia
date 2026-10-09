@@ -152,7 +152,7 @@ function initMap() {
     ab.addEventListener('click', e => { e.stopPropagation(); const on = $('#view-map').classList.toggle('attr-open'); ab.setAttribute('aria-expanded', String(on)); });
     L.DomEvent.disableClickPropagation(ab); $('#view-map').appendChild(ab); map.on('click', () => { $('#view-map').classList.remove('attr-open'); ab.setAttribute('aria-expanded', 'false'); }); }
   addBaseLayers(map);
-  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl(); map.on('moveend zoomend', () => setTimeout(updateLivePins, 50));
+  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl(); 
   layer = L.layerGroup().addTo(map);
   // Clips sharing a place get a small ring offset so every clip has its own tappable pin.
   const byPlace = {};
@@ -304,27 +304,30 @@ function pinHTML(v) {
   if (pinStyle.desc && v.blurb) lines.push(`<i>${esc(v.blurb)}</i>`);
   return `<div class="vpin ${selectedVideo === v.id ? 'sel' : ''}" style="--s:${S}px">${dot}${lines.length ? `<span class="plbl">${lines.join('')}</span>` : ''}</div>`;
 }
-// Animated pins: silent looping embeds inside the circles of on-screen pins only, nearest the centre first, max 6 (4 when
-// the panel's narrow). Re-evaluated after every pan/zoom; off-screen ones are removed so they stop loading.
-const LIVE_MAX = 6; const live = new Map();
+// Animated pins: ONE pin at a time plays a silent looping embed in its circle, cycling north → south through the
+// currently shown pins, 5 s each, then looping. Paused while the full player is open (or another view is showing).
+const LIVE = { idx: -1, id: null, frame: null, timer: null };
+function liveOrder() { return visibleVideos().map(v => [v.id, markers.get(v.id)?.getLatLng()]).filter(x => x[1]).sort((a, b) => b[1].lat - a[1].lat).map(x => x[0]); }
+function liveStop() { clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.frame?.remove(); LIVE.frame = null; LIVE.id = null; window.__croytopiaLive = null; }
+function liveShow(id) {
+  LIVE.frame?.remove(); LIVE.frame = null; LIVE.id = id; window.__croytopiaLive = id;
+  const host = markers.get(id)?.getElement()?.querySelector('.pth'); if (!host) return;
+  const f = document.createElement('iframe'); f.className = 'pth-live'; f.tabIndex = -1; f.setAttribute('aria-hidden', 'true'); f.allow = 'autoplay';
+  f.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&controls=0&loop=1&playlist=${id}&playsinline=1&disablekb=1&fs=0&rel=0&iv_load_policy=3&cc_load_policy=0`;
+  const k = (host.clientWidth || 42) / 320 * 1.05; f.style.transform = `scale(${k}) translate(-50%,-50%)`;   // big player scaled down → YouTube's centre icon is tiny
+  host.appendChild(f); LIVE.frame = f;
+}
+function liveTick() {
+  const order = liveOrder(); if (!order.length) return liveStop();
+  LIVE.idx = (LIVE.idx + 1) % order.length; liveShow(order[LIVE.idx]);
+  LIVE.timer = setTimeout(liveTick, 5000);
+}
 function updateLivePins() {
-  const want = new Set();
-  if (pinStyle.anim && pinStyle.thumb && map && $('#player').hidden && state.view === 'map') {
-    const size = map.getSize(), c = size.divideBy(2);
-    [...markers.entries()].map(([id, m]) => [id, map.latLngToContainerPoint(m.getLatLng())])
-      .filter(([, pt]) => pt.x > 0 && pt.y > 0 && pt.x < size.x && pt.y < size.y).sort((a, b) => a[1].distanceTo(c) - b[1].distanceTo(c))
-      .slice(0, LIVE_MAX).forEach(([id]) => want.add(id));
-  }
-  for (const [id, f] of live) if (!want.has(id) || !f.isConnected) { f.remove(); live.delete(id); }
-  for (const id of want) {
-    if (live.has(id)) continue;
-    const host = markers.get(id)?.getElement()?.querySelector('.pth'); if (!host) continue;
-    const f = document.createElement('iframe'); f.className = 'pth-live'; f.tabIndex = -1; f.setAttribute('aria-hidden', 'true'); f.allow = 'autoplay';
-    f.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&controls=0&loop=1&playlist=${id}&playsinline=1&disablekb=1&fs=0&rel=0&iv_load_policy=3&cc_load_policy=0`;
-    const k = (host.clientWidth || 42) / 320 * 1.05; f.style.transform = `scale(${k}) translate(-50%,-50%)`;   // big player scaled down = YouTube's centre icon becomes tiny
-    host.appendChild(f); live.set(id, f);
-  }
-  window.__croytopiaLive = live.size;
+  const on = pinStyle.anim && pinStyle.thumb && map && $('#player').hidden && state.view === 'map';
+  if (!on) return liveStop();
+  if (LIVE.timer && LIVE.frame?.isConnected) return;            // already cycling and the frame survived
+  if (LIVE.timer && LIVE.id) { const keep = LIVE.id; clearTimeout(LIVE.timer); liveShow(keep); LIVE.timer = setTimeout(liveTick, 5000); return; }   // markers re-rendered: re-attach
+  LIVE.idx = Math.max(-1, LIVE.idx - 1); liveTick();             // (re)start, resuming roughly where it paused
 }
 function renderMarkers(vis) {
   layer.clearLayers();
