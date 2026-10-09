@@ -48,7 +48,8 @@ main{position:relative;flex:1;min-height:0}
 .mapview{padding:0}
 #map{position:absolute;inset:0;z-index:0;background:#0b0f12}
 .mapview{bottom:calc(var(--tab) + var(--safe))}
-.dark-tiles{filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6)}
+.sat-tiles{filter:brightness(.62) saturate(.75) contrast(1.05)}   /* dim imagery so neon pins pop */
+.label-tiles{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px #000)}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:700;display:grid;grid-template-columns:repeat(4,1fr);height:calc(var(--tab) + var(--safe));padding-bottom:var(--safe);background:#0a0e11f2;border-top:1px solid var(--line);backdrop-filter:blur(6px)}
 .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:0;background:none;color:var(--muted);font-size:.75rem;cursor:pointer}
 .tab span{font-size:1.25rem;line-height:1}
@@ -57,8 +58,8 @@ main{position:relative;flex:1;min-height:0}
 .tab.add{color:var(--neon)}
 
 /* Markers */
-.pin{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#0b1a18;border:2px solid var(--neon);color:var(--neon);font:700 12px/1 system-ui;box-shadow:var(--glow)}
-.pin.multi{background:var(--neon);color:#00140f}
+.pin{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#06100e;border:2px solid var(--neon);color:var(--neon);font:700 12px/1 system-ui;box-shadow:0 0 0 2px #000c,0 0 10px var(--neon),0 0 22px #2ef2ce88}
+.pin.multi{background:var(--neon);color:#00140f;border-color:#eafffb}
 .pin.sel{transform:scale(1.25);border-color:#fff}
 .leaflet-container{font:inherit;background:#0b0f12}
 .leaflet-control-attribution{background:#000a!important;color:#9fb3b0!important;font-size:10px}

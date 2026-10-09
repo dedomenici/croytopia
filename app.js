@@ -10,7 +10,13 @@ const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, 
 const enc = new TextEncoder();
 const KEY_STORE = 'croytopia.key.v1';
 // Free OSM raster tiles (no key), darkened with a CSS filter. Prototype-level usage only (see OSM tile policy).
-const TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+// Base map: Esri World Imagery (satellite) + Esri reference labels so place names remain.
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+const SAT_ATTR = 'Imagery © <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, and the GIS User Community · Labels © Esri';
+function addBaseLayers(m) {
+  L.tileLayer(ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, className: 'sat-tiles', attribution: SAT_ATTR }).addTo(m);
+  L.tileLayer(ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, className: 'label-tiles', pane: 'overlayPane' }).addTo(m);
+}
 
 let INDEX = null;            // public cities index
 let KEY = null;              // AES-GCM CryptoKey
@@ -126,9 +132,7 @@ function highlight(text) {
 function initMap() {
   if (map) { map.remove(); markers.clear(); }
   map = L.map('map', { zoomControl: false, attributionControl: true, tap: true }).setView(CITY.city.center, CITY.city.zoom);
-  L.tileLayer(TILES, { maxZoom: 19, className: 'dark-tiles',
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }).addTo(map);
+  addBaseLayers(map);
   L.control.zoom({ position: 'topright' }).addTo(map);
   layer = L.layerGroup().addTo(map);
   CITY.places.forEach(p => {
@@ -259,7 +263,7 @@ function step(n) {
   if (n === 2) setTimeout(() => {
     if (!addMap) {
       addMap = L.map('add-map', { zoomControl: true }).setView(CITY.city.center, 15);
-      L.tileLayer(TILES, { maxZoom: 19, className: 'dark-tiles', attribution: '© OpenStreetMap contributors' }).addTo(addMap);
+      addBaseLayers(addMap);
       addMap.on('click', e => setPin(e.latlng));
     }
     addMap.invalidateSize();
