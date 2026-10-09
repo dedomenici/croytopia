@@ -308,15 +308,28 @@ function pinHTML(v) {
 // currently shown pins, 5 s each, then looping. Paused while the full player is open (or another view is showing).
 const LIVE = { idx: -1, id: null, frame: null, timer: null };
 function liveOrder() { return visibleVideos().map(v => [v.id, markers.get(v.id)?.getLatLng()]).filter(x => x[1]).sort((a, b) => b[1].lat - a[1].lat).map(x => x[0]); }
-function liveStop() { clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.frame?.remove(); LIVE.frame = null; LIVE.id = null; window.__croytopiaLive = null; }
+function liveStop() { clearTimeout(LIVE.fb); clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.frame?.remove(); LIVE.frame = null; LIVE.id = null; window.__croytopiaLive = null; }
 function liveShow(id) {
   LIVE.frame?.remove(); LIVE.frame = null; LIVE.id = id; window.__croytopiaLive = id;
   const host = markers.get(id)?.getElement()?.querySelector('.pth'); if (!host) return;
   const f = document.createElement('iframe'); f.className = 'pth-live'; f.tabIndex = -1; f.setAttribute('aria-hidden', 'true'); f.allow = 'autoplay';
-  f.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&controls=0&loop=1&playlist=${id}&playsinline=1&disablekb=1&fs=0&rel=0&iv_load_policy=3&cc_load_policy=0`;
+  // With sound: try unmuted autoplay (the page already has a user tap from unlocking / ticking the box); if it isn't
+  // playing within 1.5 s the browser blocked it, so mute + play silently. Only this one frame exists, so one audio source.
+  f.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=0&controls=0&loop=1&playlist=${id}&playsinline=1&disablekb=1&fs=0&rel=0&iv_load_policy=3&cc_load_policy=0&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
   const k = (host.clientWidth || 42) / 320 * 1.05; f.style.transform = `scale(${k}) translate(-50%,-50%)`;   // big player scaled down → YouTube's centre icon is tiny
+  const cmd = (func, args = []) => f.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+  f.addEventListener('load', () => f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'live', channel: 'widget' }), '*'));
+  LIVE.state = -1; LIVE.sound = 'trying'; clearTimeout(LIVE.fb);
+  LIVE.fb = setTimeout(() => { if (LIVE.frame === f && LIVE.state !== 1) { LIVE.sound = 'muted-fallback'; cmd('mute'); cmd('playVideo'); } }, 1500);
   host.appendChild(f); LIVE.frame = f;
 }
+window.addEventListener('message', e => {
+  if (!LIVE.frame || e.source !== LIVE.frame.contentWindow) return;
+  let d; try { d = JSON.parse(e.data); } catch { return; }
+  if (d.event === 'infoDelivery' && d.info) { if ('playerState' in d.info) LIVE.state = d.info.playerState; if ('muted' in d.info) LIVE.muted = d.info.muted;
+    if (LIVE.state === 1 && LIVE.sound === 'trying') LIVE.sound = LIVE.muted ? 'muted' : 'unmuted'; }
+  window.__croytopiaLiveInfo = { id: LIVE.id, state: LIVE.state, muted: LIVE.muted, sound: LIVE.sound };
+});
 function liveTick() {
   const order = liveOrder(); if (!order.length) return liveStop();
   LIVE.idx = (LIVE.idx + 1) % order.length; liveShow(order[LIVE.idx]);

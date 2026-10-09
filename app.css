@@ -298,3 +298,4 @@ main{position:absolute;inset:0}
 .toast-act{margin-left:.5rem;border:1px solid var(--neon);background:transparent;color:var(--neon);border-radius:999px;padding:.3rem .7rem;font:600 13px/1 system-ui;cursor:pointer}
 .pth{position:relative;overflow:hidden}
 .pth-live{position:absolute;left:50%;top:50%;width:320px;height:569px;border:0;pointer-events:none;background:#000;transform-origin:0 0}
+.ps-sub{display:block;font-size:10px;line-height:1.1;color:var(--muted)}
