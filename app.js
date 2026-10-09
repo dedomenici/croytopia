@@ -5,6 +5,10 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Search normalisation: case, accents, and iOS "smart" quotes/apostrophes (Queen’s == Queen's == Queens).
+// localStorage can throw (Safari private mode, quota, disabled storage): never let it break the app.
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const lsDel = k => { try { localStorage.removeItem(k); } catch {} };
 const norm = s => String(s ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[’‘`´'"“”]/g, '').replace(/\s+/g, ' ').trim();
 // Base map: Esri World Imagery (satellite) + Esri reference labels so place names remain.
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
@@ -19,10 +23,11 @@ let CITY = null;             // city data
 let map, layer, markers = new Map();
 const state = { q: '', tags: new Set(), view: 'map' };
 
-async function loadJSON(url) { return (await fetch(asset(url), { cache: 'no-cache' })).json(); }
+async function loadJSON(url) { return (await fetch(asset(url) + (String(url).includes('?') ? '&' : '?') + 'v=' + APP_VERSION, { cache: 'no-cache' })).json(); }
 
 /* ---------- Routing ---------- */
 // BASE = deploy path prefix from <base href> ("/" locally, "/croytopia/" on GitHub Pages)
+const APP_VERSION = '9ba53e7700';   // replaced at build; appended to data fetches
 const BASE = new URL(document.baseURI).pathname.replace(/\/?$/, '/');
 const asset = p => BASE + String(p).replace(/^\/+/, '');
 function citySlugFromPath() {
@@ -85,8 +90,8 @@ function highlight(text) {
 
 /* ---------- Pin style (thumbnail / name / description), saved in localStorage ---------- */
 const PS_KEY = 'croytopia.pinStyle.v1';
-let pinStyle = (() => { try { return { thumb: true, name: true, desc: false, ...JSON.parse(localStorage.getItem(PS_KEY) || '{}') }; } catch { return { thumb: true, name: true, desc: false }; } })();
-function savePinStyle() { localStorage.setItem(PS_KEY, JSON.stringify(pinStyle)); }
+let pinStyle = (() => { try { return { thumb: true, name: true, desc: false, ...JSON.parse(lsGet(PS_KEY) || '{}') }; } catch { return { thumb: true, name: true, desc: false }; } })();
+function savePinStyle() { lsSet(PS_KEY, JSON.stringify(pinStyle)); }
 
 // Crop YouTube's 4:3 hqdefault (vertical clips are pillarboxed in it) so only the picture fills a box (cover).
 function thumbStyle(v, W, H) {
@@ -287,7 +292,7 @@ function liveLoad(id) {
   liveCmd(pinSound ? 'unMute' : 'mute'); liveCmd('loadVideoById', [id, 0]); liveCmd('playVideo');
   if (pinSound) { clearTimeout(LIVE.fb); LIVE.fb = setTimeout(() => { if (LIVE.id === id && LIVE.state !== 1) soundBlocked(); }, 1200); }
 }
-function soundBlocked() { pinSound = false; localStorage.setItem(SND_KEY, 'off'); updateSoundBtn(); liveCmd('mute'); liveCmd('playVideo'); window.__croytopiaSound = 'blocked → muted'; }
+function soundBlocked() { pinSound = false; lsSet(SND_KEY, 'off'); updateSoundBtn(); liveCmd('mute'); liveCmd('playVideo'); window.__croytopiaSound = 'blocked → muted'; }
 function liveStop() { clearTimeout(LIVE.fb); clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.id = null; window.__croytopiaLive = null; if (LIVE.wrap) { LIVE.wrap.hidden = true; liveCmd('pauseVideo'); } }
 function liveTick() {
   const order = visibleVideos().map(v => [v.id, markers.get(v.id)?.getLatLng()]).filter(x => x[1]).sort((a, b) => b[1].lat - a[1].lat).map(x => x[0]);
@@ -321,7 +326,7 @@ function addSoundControl() {
     const b = L.DomUtil.create('button', 'locate-btn sound-btn'); b.type = 'button'; b.id = 'sound-btn';
     L.DomEvent.disableClickPropagation(b);
     L.DomEvent.on(b, 'click', () => {
-      pinSound = !pinSound; localStorage.setItem(SND_KEY, pinSound ? 'on' : 'off'); updateSoundBtn();
+      pinSound = !pinSound; lsSet(SND_KEY, pinSound ? 'on' : 'off'); updateSoundBtn();
       if (pinSound) { liveCmd('unMute'); liveCmd('setVolume', [100]); if (LIVE.id) liveCmd('loadVideoById', [LIVE.id, LIVE.time || 0]); liveCmd('playVideo');   // inside the tap: a fresh unmuted load (unmuting a playing muted video gets paused by Chrome)
         const id = LIVE.id; clearTimeout(LIVE.fb); LIVE.fb = setTimeout(() => { if (LIVE.id === id && (LIVE.state !== 1 || LIVE.muted)) soundBlocked(); }, 1200); }
       else liveCmd('mute');
@@ -350,7 +355,7 @@ function tagChips(tags) {
   return `<div class="chips">${tags.map(t => `<button class="chip ${state.tags.has(t.t) ? 'on' : ''}" data-tag="${esc(t.t)}" data-type="${t.type}">${esc(t.t)}</button>`).join('')}</div>`;
 }
 const CC_KEY = 'croytopia.cc.v1';
-const PL = { id: null, state: -1, muted: false, ytMuted: null, frame: null, time: 0, timeAt: 0, dur: 0, autoplay: '', cc: localStorage.getItem(CC_KEY) !== 'off', raf: 0, fallbackT: 0 };
+const PL = { id: null, state: -1, muted: false, ytMuted: null, frame: null, time: 0, timeAt: 0, dur: 0, autoplay: '', cc: lsGet(CC_KEY) !== 'off', raf: 0, fallbackT: 0 };
 window.__croytopiaPlayer = PL;   // read-only status for automated tests
 const SPK = {
   on: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
@@ -363,7 +368,7 @@ const QS = new URLSearchParams(location.search);
 const HD_KEY = 'croytopia.hd';
 // HD: the iframe is laid out 2× bigger and scaled back down, so YouTube's size-based picker streams 720p instead of 480p
 // (measured: 854→1280 px tall). SD = real size (less data). ?k= overrides for testing.
-PL.k = +(QS.get('k') || (localStorage.getItem(HD_KEY) === 'off' ? 1 : 2));
+PL.k = +(QS.get('k') || (lsGet(HD_KEY) === 'off' ? 1 : 2));
 function updateHD() { const b = $('#pl-hd'); if (!b) return; const on = PL.k > 1; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
 function sizeFrame() {
   const st = $('#pl-stage'), fr = PL.frame; if (!st || !fr) return;
@@ -604,8 +609,8 @@ function bindUI() {
     // Strict autoplay policies pause a video that gets unmuted without a tap *inside* YouTube's frame: undo + keep playing
     if (unmuting) { const id = PL.id; setTimeout(() => { if (PL.id === id && PL.state !== 1) { setMuted(true); ytCommand('playVideo'); toast('Your browser blocked sound for this embed'); } }, 1500); }
   });
-  $('#pl-hd').addEventListener('click', () => { PL.k = PL.k > 1 ? 1 : 2; localStorage.setItem(HD_KEY, PL.k > 1 ? 'on' : 'off'); updateHD(); sizeFrame(); });
-  $('#pl-cc').addEventListener('click', () => { PL.cc = !PL.cc; localStorage.setItem(CC_KEY, PL.cc ? 'on' : 'off'); updateCC(); });
+  $('#pl-hd').addEventListener('click', () => { PL.k = PL.k > 1 ? 1 : 2; lsSet(HD_KEY, PL.k > 1 ? 'on' : 'off'); updateHD(); sizeFrame(); });
+  $('#pl-cc').addEventListener('click', () => { PL.cc = !PL.cc; lsSet(CC_KEY, PL.cc ? 'on' : 'off'); updateCC(); });
   $('#pl-tap').addEventListener('click', () => {
     if (PL.state === 1 && PL.muted && /muted/.test(PL.autoplay) && !PL.userToggled) { PL.userToggled = true; setMuted(false); return; }  // first tap after a blocked autoplay = sound on
     if (PL.state === 1) ytCommand('pauseVideo'); else ytCommand('playVideo');
@@ -682,8 +687,11 @@ function initAdd() {
 
 /* ---------- Boot ---------- */
 (async function boot() {
-  INDEX = await (await fetch(asset('data/cities.json'), { cache: 'no-cache' })).json();
-  localStorage.removeItem('croytopia.key.v1');   // old unlock key, no longer used
+  INDEX = await loadJSON('data/cities.json');
+  INDEX.cities.forEach(c => { if (c.data) c.data = c.data.replace(/\.enc\.json$/, '.json'); else c.data = `data/${c.slug}.json`; });   // tolerate an old index
+  lsDel('croytopia.key.v1');   // old unlock key, no longer used
+  document.querySelector('#gate')?.remove();   // a cached pre-2026-10-09 index.html may still contain the password gate
+  navigator.serviceWorker?.getRegistrations?.().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
   enterApp();
 })();
 })();
