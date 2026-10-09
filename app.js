@@ -542,7 +542,7 @@ function bindUI() {
   initAdd();
 }
 
-/* ---------- Mock "Add your video" ---------- */
+/* ---------- Mock "Upload your video" ---------- */
 let addMap, addPin;
 function step(n) {
   $$('#add .step').forEach(s => s.hidden = +s.dataset.step !== n);
