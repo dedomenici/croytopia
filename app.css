@@ -299,3 +299,7 @@ main{position:absolute;inset:0}
 .pth{position:relative;overflow:hidden}
 .pth-live{position:absolute;left:50%;top:50%;width:320px;height:569px;border:0;pointer-events:none;background:#000;transform-origin:0 0}
 .ps-sub{display:block;font-size:10px;line-height:1.1;color:var(--muted)}
+.live-win{position:absolute;z-index:440;border-radius:50%;overflow:hidden;pointer-events:none}
+.live-win[hidden]{display:block!important;visibility:hidden}
+.live-win .pth-live{position:absolute;left:50%;top:50%;transform-origin:0 0}
+.sound-btn[hidden]{display:none}

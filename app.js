@@ -152,7 +152,7 @@ function initMap() {
     ab.addEventListener('click', e => { e.stopPropagation(); const on = $('#view-map').classList.toggle('attr-open'); ab.setAttribute('aria-expanded', String(on)); });
     L.DomEvent.disableClickPropagation(ab); $('#view-map').appendChild(ab); map.on('click', () => { $('#view-map').classList.remove('attr-open'); ab.setAttribute('aria-expanded', 'false'); }); }
   addBaseLayers(map);
-  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl(); 
+  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl(); addSoundControl(); map.on('move zoom', livePlace); 
   layer = L.layerGroup().addTo(map);
   // Clips sharing a place get a small ring offset so every clip has its own tappable pin.
   const byPlace = {};
@@ -304,43 +304,76 @@ function pinHTML(v) {
   if (pinStyle.desc && v.blurb) lines.push(`<i>${esc(v.blurb)}</i>`);
   return `<div class="vpin ${selectedVideo === v.id ? 'sel' : ''}" style="--s:${S}px">${dot}${lines.length ? `<span class="plbl">${lines.join('')}</span>` : ''}</div>`;
 }
-// Animated pins: ONE pin at a time plays a silent looping embed in its circle, cycling north → south through the
-// currently shown pins, 5 s each, then looping. Paused while the full player is open (or another view is showing).
-const LIVE = { idx: -1, id: null, frame: null, timer: null };
-function liveOrder() { return visibleVideos().map(v => [v.id, markers.get(v.id)?.getLatLng()]).filter(x => x[1]).sort((a, b) => b[1].lat - a[1].lat).map(x => x[0]); }
-function liveStop() { clearTimeout(LIVE.fb); clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.frame?.remove(); LIVE.frame = null; LIVE.id = null; window.__croytopiaLive = null; }
-function liveShow(id) {
-  LIVE.frame?.remove(); LIVE.frame = null; LIVE.id = id; window.__croytopiaLive = id;
-  const host = markers.get(id)?.getElement()?.querySelector('.pth'); if (!host) return;
+// Animated pins: ONE persistent YouTube player (created once, reused via loadVideoById so an audio unlock carries over)
+// floats in a round window over the current pin, cycling north → south through the shown pins, 5 s each, then looping.
+// Sound follows the map's volume button (default muted); unmuting happens inside that button's tap.
+const LIVE = { idx: -1, id: null, timer: null, wrap: null, frame: null, ready: false, state: -1, pending: null };
+const SND_KEY = 'croytopia.pinsound';
+let pinSound = localStorage.getItem(SND_KEY) === 'on';
+function liveCmd(func, args = []) { LIVE.frame?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); }
+function liveEnsure() {
+  if (LIVE.frame) return;
+  const w = document.createElement('div'); w.className = 'live-win'; w.hidden = true;
   const f = document.createElement('iframe'); f.className = 'pth-live'; f.tabIndex = -1; f.setAttribute('aria-hidden', 'true'); f.allow = 'autoplay';
-  // With sound: try unmuted autoplay (the page already has a user tap from unlocking / ticking the box); if it isn't
-  // playing within 1.5 s the browser blocked it, so mute + play silently. Only this one frame exists, so one audio source.
-  f.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=0&controls=0&loop=1&playlist=${id}&playsinline=1&disablekb=1&fs=0&rel=0&iv_load_policy=3&cc_load_policy=0&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
-  const k = (host.clientWidth || 42) / 320 * 1.05; f.style.transform = `scale(${k}) translate(-50%,-50%)`;   // big player scaled down → YouTube's centre icon is tiny
-  const cmd = (func, args = []) => f.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+  f.src = `https://www.youtube-nocookie.com/embed/${CITY.videos[0].id}?autoplay=0&mute=1&controls=0&playsinline=1&disablekb=1&fs=0&rel=0&iv_load_policy=3&cc_load_policy=0&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
   f.addEventListener('load', () => f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'live', channel: 'widget' }), '*'));
-  LIVE.state = -1; LIVE.sound = 'trying'; clearTimeout(LIVE.fb);
-  LIVE.fb = setTimeout(() => { if (LIVE.frame === f && LIVE.state !== 1) { LIVE.sound = 'muted-fallback'; f.src = f.src.replace('mute=0', 'mute=1'); window.__croytopiaLiveInfo = { id, sound: LIVE.sound }; } }, 2000);
-  host.appendChild(f); LIVE.frame = f;
+  w.appendChild(f); $('#view-map').appendChild(w); LIVE.wrap = w; LIVE.frame = f;
 }
-window.addEventListener('message', e => {
-  if (!LIVE.frame || e.source !== LIVE.frame.contentWindow) return;
-  let d; try { d = JSON.parse(e.data); } catch { return; }
-  if (d.event === 'infoDelivery' && d.info) { if ('playerState' in d.info) LIVE.state = d.info.playerState; if ('muted' in d.info) LIVE.muted = d.info.muted;
-    if (LIVE.state === 1 && LIVE.sound === 'trying') LIVE.sound = LIVE.muted ? 'muted' : 'unmuted'; }
-  window.__croytopiaLiveInfo = { id: LIVE.id, state: LIVE.state, muted: LIVE.muted, sound: LIVE.sound };
-});
+function livePlace() {
+  if (!LIVE.wrap || !LIVE.id) return;
+  const host = markers.get(LIVE.id)?.getElement()?.querySelector('.pth'); if (!host) { LIVE.wrap.hidden = true; return; }
+  const r = host.getBoundingClientRect(), m = $('#view-map').getBoundingClientRect();
+  Object.assign(LIVE.wrap.style, { left: r.left - m.left + 'px', top: r.top - m.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+  LIVE.frame.style.transform = `scale(${r.width / 320 * 1.05}) translate(-50%,-50%)`;   // big player scaled down → YouTube's centre icon is tiny
+  LIVE.wrap.hidden = false;
+}
+function liveLoad(id) {
+  LIVE.id = id; LIVE.state = -1; window.__croytopiaLive = id; livePlace();
+  if (!LIVE.ready) { LIVE.pending = id; return; }
+  liveCmd(pinSound ? 'unMute' : 'mute'); liveCmd('loadVideoById', [id, 0]); liveCmd('playVideo');
+  if (pinSound) { clearTimeout(LIVE.fb); LIVE.fb = setTimeout(() => { if (LIVE.id === id && LIVE.state !== 1) soundBlocked(); }, 1200); }
+}
+function soundBlocked() { pinSound = false; localStorage.setItem(SND_KEY, 'off'); updateSoundBtn(); liveCmd('mute'); liveCmd('playVideo'); window.__croytopiaSound = 'blocked → muted'; }
+function liveStop() { clearTimeout(LIVE.fb); clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.id = null; window.__croytopiaLive = null; if (LIVE.wrap) { LIVE.wrap.hidden = true; liveCmd('pauseVideo'); } }
 function liveTick() {
-  const order = liveOrder(); if (!order.length) return liveStop();
-  LIVE.idx = (LIVE.idx + 1) % order.length; liveShow(order[LIVE.idx]);
+  const order = visibleVideos().map(v => [v.id, markers.get(v.id)?.getLatLng()]).filter(x => x[1]).sort((a, b) => b[1].lat - a[1].lat).map(x => x[0]);
+  if (!order.length) return liveStop();
+  LIVE.idx = (LIVE.idx + 1) % order.length; liveLoad(order[LIVE.idx]);
   LIVE.timer = setTimeout(liveTick, 5000);
 }
 function updateLivePins() {
   const on = pinStyle.anim && pinStyle.thumb && map && $('#player').hidden && state.view === 'map';
+  const sb = $('#sound-btn'); if (sb) sb.hidden = !(pinStyle.anim && pinStyle.thumb);
   if (!on) return liveStop();
-  if (LIVE.timer && LIVE.frame?.isConnected) return;            // already cycling and the frame survived
-  if (LIVE.timer && LIVE.id) { const keep = LIVE.id; clearTimeout(LIVE.timer); liveShow(keep); LIVE.timer = setTimeout(liveTick, 5000); return; }   // markers re-rendered: re-attach
-  LIVE.idx = Math.max(-1, LIVE.idx - 1); liveTick();             // (re)start, resuming roughly where it paused
+  liveEnsure();
+  if (LIVE.timer) return livePlace();
+  LIVE.idx = Math.max(-1, LIVE.idx - 1); liveTick();
+}
+window.addEventListener('message', e => {
+  if (!LIVE.frame || e.source !== LIVE.frame.contentWindow) return;
+  let d; try { d = JSON.parse(e.data); } catch { return; }
+  if (d.event === 'onReady') { LIVE.ready = true; if (LIVE.pending && LIVE.id === LIVE.pending) { LIVE.pending = null; liveLoad(LIVE.id); } }
+  if (d.event === 'infoDelivery' && d.info) {
+    if ('playerState' in d.info) { LIVE.state = d.info.playerState; if (LIVE.state === 0) { liveCmd('seekTo', [0, true]); liveCmd('playVideo'); } }
+    if ('muted' in d.info) LIVE.muted = d.info.muted;
+    if ('currentTime' in d.info) LIVE.time = d.info.currentTime;
+  }
+  window.__croytopiaLiveInfo = { id: LIVE.id, state: LIVE.state, ytMuted: LIVE.muted, soundSetting: pinSound, frames: document.querySelectorAll('.pth-live').length };
+});
+const SVG_SND = on => `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>${on ? '<path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' : '<path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>`;
+function updateSoundBtn() { const b = $('#sound-btn'); if (!b) return; b.innerHTML = SVG_SND(pinSound); b.classList.toggle('on', pinSound); b.setAttribute('aria-label', pinSound ? 'Pin sound on – mute' : 'Pin sound off – unmute'); b.setAttribute('aria-pressed', String(pinSound)); }
+function addSoundControl() {
+  const C = L.Control.extend({ options: { position: 'topright' }, onAdd() {
+    const b = L.DomUtil.create('button', 'locate-btn sound-btn'); b.type = 'button'; b.id = 'sound-btn';
+    L.DomEvent.disableClickPropagation(b);
+    L.DomEvent.on(b, 'click', () => {
+      pinSound = !pinSound; localStorage.setItem(SND_KEY, pinSound ? 'on' : 'off'); updateSoundBtn();
+      if (pinSound) { liveCmd('unMute'); liveCmd('setVolume', [100]); if (LIVE.id) liveCmd('loadVideoById', [LIVE.id, LIVE.time || 0]); liveCmd('playVideo');   // inside the tap: a fresh unmuted load (unmuting a playing muted video gets paused by Chrome)
+        const id = LIVE.id; clearTimeout(LIVE.fb); LIVE.fb = setTimeout(() => { if (LIVE.id === id && (LIVE.state !== 1 || LIVE.muted)) soundBlocked(); }, 1200); }
+      else liveCmd('mute');
+    });
+    return b; } });
+  map.addControl(new C()); updateSoundBtn();
 }
 function renderMarkers(vis) {
   layer.clearLayers();
@@ -612,7 +645,11 @@ function bindUI() {
   $$('.tab[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
   $('#pl-close').addEventListener('click', closePlayer);
   $('#pl-info-btn').addEventListener('click', () => togglePlInfo());
-  $('#pl-mute').addEventListener('click', () => { setMuted(!PL.muted); if (PL.state !== 1) ytCommand('playVideo'); });
+  $('#pl-mute').addEventListener('click', () => {
+    const unmuting = PL.muted; setMuted(!PL.muted); if (PL.state !== 1) ytCommand('playVideo');
+    // Strict autoplay policies pause a video that gets unmuted without a tap *inside* YouTube's frame: undo + keep playing
+    if (unmuting) { const id = PL.id; setTimeout(() => { if (PL.id === id && PL.state !== 1) { setMuted(true); ytCommand('playVideo'); toast('Your browser blocked sound for this embed'); } }, 1500); }
+  });
   $('#pl-hd').addEventListener('click', () => { PL.k = PL.k > 1 ? 1 : 2; localStorage.setItem(HD_KEY, PL.k > 1 ? 'on' : 'off'); updateHD(); sizeFrame(); });
   $('#pl-cc').addEventListener('click', () => { PL.cc = !PL.cc; localStorage.setItem(CC_KEY, PL.cc ? 'on' : 'off'); updateCC(); });
   $('#pl-tap').addEventListener('click', () => {
