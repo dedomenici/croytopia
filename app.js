@@ -364,7 +364,6 @@ function openPlayer(id, originRect) {
   // If it isn't playing with sound quickly, the browser blocked it: start muted (always allowed), then try sound once more.
   PL.fallbackT = setTimeout(() => { if (PL.state !== 1) { PL.autoplay = 'muted-fallback'; setMuted(true); ytCommand('playVideo'); } }, 1500);
   const vis = visibleVideos(), i = vis.findIndex(x => x.id === id);
-  $('#pl-prev').hidden = $('#pl-next').hidden = vis.length < 2 || i < 0;
   $('#pl-info').innerHTML = `
     <button class="pl-info-close" aria-label="Close info">✕</button>
     <h2 id="pl-title">${esc(v.place)}</h2>${v.name ? `<p class="who">${esc(v.name)}</p>` : ''}
@@ -387,7 +386,6 @@ function togglePlInfo(force) {
   panel.hidden = !open; $('#pl-info-btn').setAttribute('aria-expanded', String(open)); $('#pl-info-btn').classList.toggle('on', open);
   if (open) panel.scrollTop = 0;
 }
-function stepPlayer(d) { const vis = visibleVideos(); if (!vis.length) return; const i = vis.findIndex(x => x.id === PL.id); openPlayer(vis[(i + d + vis.length) % vis.length].id); }
 function closePlayer() {
   if ($('#player').hidden) return;
   cancelAnimationFrame(PL.raf); clearTimeout(PL.fallbackT); clearTimeout(PL.revealT); PL.revealT = null;
@@ -512,8 +510,6 @@ function bindUI() {
   $$('.tab[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
   $('#pl-close').addEventListener('click', closePlayer);
   $('#pl-info-btn').addEventListener('click', () => togglePlInfo());
-  $('#pl-prev').addEventListener('click', () => stepPlayer(-1));
-  $('#pl-next').addEventListener('click', () => stepPlayer(1));
   $('#pl-mute').addEventListener('click', () => { setMuted(!PL.muted); if (PL.state !== 1) ytCommand('playVideo'); });
   $('#pl-hd').addEventListener('click', () => { PL.k = PL.k > 1 ? 1 : 2; localStorage.setItem(HD_KEY, PL.k > 1 ? 'on' : 'off'); updateHD(); sizeFrame(); });
   $('#pl-cc').addEventListener('click', () => { PL.cc = !PL.cc; localStorage.setItem(CC_KEY, PL.cc ? 'on' : 'off'); updateCC(); });

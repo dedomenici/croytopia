@@ -155,8 +155,6 @@ mark{background:#2ef2ce44;color:#fff;border-radius:3px;padding:0 2px}
 .pl-infobtn{right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 86px);display:flex;align-items:center;gap:.4rem;padding:.4rem .8rem .4rem .45rem;color:var(--neon);font-size:13px}
 .pl-infobtn .i{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--neon);font:700 italic 13px/1 Georgia,serif;text-shadow:0 0 6px var(--neon);box-shadow:0 0 8px #2ef2ce88}
 .pl-infobtn.on{background:var(--neon);color:#00140f}.pl-infobtn.on .i{border-color:#00140f;text-shadow:none;box-shadow:none}
-.pl-nav{top:50%;transform:translateY(-50%);width:34px;height:58px;border-radius:12px;font-size:28px;opacity:.75}
-.pl-nav.prev{left:6px}.pl-nav.next{right:6px}
 .pl-info{position:absolute;z-index:3;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 132px);max-height:58%;overflow:auto;overscroll-behavior:contain;padding:.9rem 1rem 1rem;border-radius:18px;background:#070c0bed;border:1px solid #2ef2ce99;box-shadow:0 0 24px #2ef2ce44,0 10px 40px #000c;backdrop-filter:blur(8px);animation:up .18s ease-out}
 .pl-info[hidden]{display:none}
 .pl-info-close{position:sticky;top:0;float:right;margin:-.3rem -.4rem 0 .5rem;width:34px;height:34px;border-radius:50%;border:1px solid #2ef2ce66;background:#030807;color:var(--text);cursor:pointer}
