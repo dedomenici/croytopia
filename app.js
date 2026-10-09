@@ -85,7 +85,7 @@ async function enterApp() {
 }
 function showCities() {
   $$('.view').forEach(v => v.hidden = true);
-  $('.search').hidden = true; $('.tabbar').hidden = true;
+  $('.tabbar').hidden = true;
   const v = $('#view-cities'); v.hidden = false;
   v.innerHTML = `<h2>Choose a city</h2><p class="muted">Each city gets its own “-topia”: a map of personal memories of places, told on video.</p>` +
     INDEX.cities.map(c => c.status === 'live'
@@ -97,7 +97,7 @@ window.addEventListener('popstate', () => { if (KEY) enterApp(); });
 
 /* ---------- City ---------- */
 async function loadCity(c) {
-  $('.search').hidden = false; $('.tabbar').hidden = false; $('#view-cities').hidden = true;
+  $('.tabbar').hidden = false; $('#view-cities').hidden = true;
   CITY = await decryptJSON(c.data);
   CITY.byId = Object.fromEntries(CITY.videos.map(v => [v.id, v]));
   CITY.videos.forEach(v => {
@@ -157,7 +157,7 @@ function initMap() {
     let lat = v.lat, lng = v.lng;
     if (list.length > 1) { const ang = 2 * Math.PI * i / list.length, r = 0.00018; lat += r * Math.cos(ang); lng += r * Math.sin(ang) / Math.cos(lat * Math.PI / 180); }
     const m = L.marker([lat, lng], { keyboard: true, title: [v.name, v.place].filter(Boolean).join(' · '), alt: v.place, riseOnHover: true });
-    m.on('click', () => openPlayer(v.id));
+    m.on('click', ev => openPlayer(v.id, (ev.originalEvent?.target?.closest('.vpin')?.querySelector('.pth,.pdot') || m.getElement())?.getBoundingClientRect()));
     markers.set(v.id, m);
   }));
   playIntro();
@@ -197,8 +197,52 @@ function fitToResults(fromEnter, evenIfAll) {
 let toastT;
 function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 2200); }
 
+// Search pop-up (magnifier in the toolbar). Focus is set synchronously inside the tap so mobile keyboards open.
+function openSearch() {
+  closePlayer(); closeAbout();
+  $('#search-pop').hidden = false; $('#search-btn').setAttribute('aria-expanded', 'true'); $('#search-btn').classList.add('active');
+  const q = $('#q'); q.focus(); q.select?.();
+}
+function closeSearch() {
+  if ($('#search-pop').hidden) return;
+  $('#search-pop').hidden = true; $('#q').blur(); $('#search-btn').setAttribute('aria-expanded', 'false'); $('#search-btn').classList.remove('active');
+}
+// About page with the trailer. The (paused) trailer player is created when About opens; tapping the poster sends
+// playVideo synchronously inside the tap (same trick as the main player) so it can start with sound.
+const TRAILER = 'YlS_ra8Ji9w';
+const TR = { frame: null, ready: false, wantPlay: false };
+function openAbout() {
+  closePlayer(); closeSearch(); $('#about').hidden = false; $('#about').scrollTop = 0; $('#about-btn').classList.add('active');
+  if (!TR.frame) {
+    const f = document.createElement('iframe');
+    f.id = 'about-iframe'; f.title = 'Croytopia Trailer'; f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen'; f.allowFullscreen = true;
+    f.src = `https://www.youtube-nocookie.com/embed/${TRAILER}?autoplay=0&playsinline=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
+    f.addEventListener('load', () => f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'trailer', channel: 'widget' }), '*'));
+    $('#about-video').prepend(f); TR.frame = f; TR.ready = false;
+  }
+  $('#about-trailer').hidden = false;
+}
+function trCmd(func, args = []) { TR.frame?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); }
+function closeAbout() {
+  if ($('#about').hidden) return;
+  $('#about').hidden = true; $('#about-btn').classList.remove('active');
+  if (TR.frame) { TR.frame.remove(); TR.frame = null; TR.ready = false; }   // stop the trailer
+}
+function playTrailer() {
+  $('#about-trailer').hidden = true;
+  if (TR.ready) { trCmd('unMute'); trCmd('playVideo'); }
+  else if (TR.frame) { TR.frame.src = TR.frame.src.replace('autoplay=0', 'autoplay=1'); }   // not ready yet: let YouTube autoplay it
+}
+window.addEventListener('message', e => {
+  if (!TR.frame || e.source !== TR.frame.contentWindow) return;
+  let d; try { d = JSON.parse(e.data); } catch { return; }
+  if (d.event === 'onReady') TR.ready = true;
+  if (d.event === 'infoDelivery' && d.info && 'playerState' in d.info) TR.state = d.info.playerState;
+});
+window.__croytopiaTrailer = TR;
+
 function resetToStart() {
-  closePlayer(); closeAdd();
+  closePlayer(); closeAdd(); closeSearch(); closeAbout();
   $('#pinstyle-panel').hidden = true; $('#pinstyle-btn').setAttribute('aria-expanded', 'false');
   $('#q').value = ''; state.q = ''; state.tags.clear();
   setView('map'); render(); playIntro();
@@ -237,13 +281,31 @@ window.__croytopiaPlayer = PL;   // read-only status for automated tests
 const SPK = {
   on: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   off: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>' };
-const OVERSCAN = 64;   // px pushed off-screen top and bottom to hide YouTube's title row / bottom overlays
+const OVERSCAN = Math.max(0, +(new URLSearchParams(location.search).get('os') ?? 64) || 0);   // px pushed off-screen top+bottom (?os= for testing)
+// The iframe is laid out "cover" with OVERSCAN px pushed off-screen top+bottom while YouTube's title/branding overlays
+// are showing (~first 3-4 s of a load). Then PL.revealed scales it down (CSS transform, so the player doesn't see a
+// resize) to plain cover = the full frame. PL.k renders the iframe k× bigger and scales it back (player-size hint for quality).
+const QS = new URLSearchParams(location.search);
+const HD_KEY = 'croytopia.hd';
+// HD: the iframe is laid out 2× bigger and scaled back down, so YouTube's size-based picker streams 720p instead of 480p
+// (measured: 854→1280 px tall). SD = real size (less data). ?k= overrides for testing.
+PL.k = +(QS.get('k') || (localStorage.getItem(HD_KEY) === 'off' ? 1 : 2));
+function updateHD() { const b = $('#pl-hd'); if (!b) return; const on = PL.k > 1; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
 function sizeFrame() {
   const st = $('#pl-stage'), fr = PL.frame; if (!st || !fr) return;
   const v = CITY.byId[PL.id]; const a = v && v.width && v.height ? v.width / v.height : 9 / 16;
-  const W = st.clientWidth, H = st.clientHeight + 2 * OVERSCAN;
-  let w, h; if (W / H > a) { w = W; h = W / a; } else { h = H; w = H * a; }   // cover: fill, crop overflow, never letterbox
-  Object.assign(fr.style, { width: Math.ceil(w) + 'px', height: Math.ceil(h) + 'px', left: Math.round((W - w) / 2) + 'px', top: Math.round((st.clientHeight - h) / 2) + 'px' });
+  const W = st.clientWidth, Hs = st.clientHeight, H = Hs + 2 * OVERSCAN;
+  let w, h; if (W / H > a) { w = W; h = W / a; } else { h = H; w = H * a; }   // cover incl. overscan, never letterbox
+  const s0 = Math.max(W / w, Hs / h);                                      // scale that removes the overscan (still cover)
+  const k = PL.k, s = (PL.revealed ? s0 : 1) / k;
+  Object.assign(fr.style, { width: Math.ceil(w * k) + 'px', height: Math.ceil(h * k) + 'px', left: Math.round((W - w * k) / 2) + 'px',
+    top: Math.round((Hs - h * k) / 2) + 'px', transformOrigin: '50% 50%', transform: `scale(${s.toFixed(4)})`,
+    transition: PL.revealed && !reduceMotion() ? 'transform .6s ease' : 'none' });
+}
+function scheduleReveal() {
+  clearTimeout(PL.revealT);
+  if (QS.get('reveal') === '0') return;
+  PL.revealT = setTimeout(() => { if (PL.id && PL.state === 1) { PL.revealed = true; sizeFrame(); } }, 4000);
 }
 function ytCommand(func, args = []) { PL.frame?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); }
 function setMuted(m) {
@@ -273,18 +335,30 @@ function tick() {
 function ensurePlayerFrame() {
   if (PL.frame) return;
   const first = CITY.videos[0].id, origin = encodeURIComponent(location.origin);
-  $('#pl-frame').innerHTML = `<iframe id="pl-iframe" src="https://www.youtube-nocookie.com/embed/${first}?autoplay=0&controls=0&playsinline=1&rel=0&disablekb=1&fs=0&iv_load_policy=3&cc_load_policy=0&modestbranding=1&enablejsapi=1&origin=${origin}" title="Video player" allow="autoplay; encrypted-media; picture-in-picture" tabindex="-1"></iframe>`;
+  $('#pl-frame').innerHTML = `<iframe id="pl-iframe" src="https://www.youtube-nocookie.com/embed/${first}?autoplay=0&controls=0&playsinline=1&rel=0&disablekb=1&fs=0&iv_load_policy=3&cc_load_policy=0&modestbranding=1&enablejsapi=1${new URLSearchParams(location.search).get('vq') ? '&vq=' + encodeURIComponent(new URLSearchParams(location.search).get('vq')) : ''}&origin=${origin}" title="Video player" allow="autoplay; encrypted-media; picture-in-picture" tabindex="-1"></iframe>`;
   PL.frame = $('#pl-iframe'); PL.ready = false;
   PL.frame.addEventListener('load', () => { PL.frame?.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'croytopia', channel: 'widget' }), '*'); });
 }
-function openPlayer(id) {
+// Expand the player out of the tapped pin (clip-path reveal + poster), and shrink back into it on close.
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function clipFor(r) {
+  if (!r) return null; const W = innerWidth, H = innerHeight, rad = Math.min(r.width, r.height) / 2;
+  return `inset(${Math.max(0, r.top)}px ${Math.max(0, W - r.right)}px ${Math.max(0, H - r.bottom)}px ${Math.max(0, r.left)}px round ${rad}px)`;
+}
+function animateClip(el, from, to, ms, done) {
+  if (!from || reduceMotion() || !el.animate) { done?.(); return; }
+  const a = el.animate([{ clipPath: from }, { clipPath: to }], { duration: ms, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  a.onfinish = () => done?.(); PL.anim = a;
+}
+function openPlayer(id, originRect) {
   const v = CITY.byId[id]; if (!v) return;
-  cancelAnimationFrame(PL.raf); clearTimeout(PL.fallbackT);
-  Object.assign(PL, { id, state: -1, time: 0, timeAt: 0, dur: v.duration || 0, autoplay: 'trying-unmuted', tapAt: performance.now(), userToggled: false });
+  cancelAnimationFrame(PL.raf); clearTimeout(PL.fallbackT); clearTimeout(PL.revealT); PL.revealT = null; closeSearch();
+  Object.assign(PL, { id, state: -1, time: 0, timeAt: 0, dur: v.duration || 0, autoplay: 'trying-unmuted', tapAt: performance.now(), userToggled: false, revealed: false });
   selectedVideo = id;
   ensurePlayerFrame();
   if (PL.ready) {
     // inside the user's tap: switch video and ask for sound
+    clearTimeout(PL.revealT); PL.revealT = null; PL.revealed = false;
     ytCommand('loadVideoById', [id, 0]); PL.muted = false; ytCommand('unMute'); ytCommand('setVolume', [100]); ytCommand('playVideo');
   } else { PL.pendingId = id; PL.muted = false; }
   // If it isn't playing with sound quickly, the browser blocked it: start muted (always allowed), then try sound once more.
@@ -300,8 +374,12 @@ function openPlayer(id) {
     <p class="muted">${v.duration ? Math.round(v.duration) + 's · ' : ''}${esc(v.uploadDate || '')} · YouTube: ${esc(v.channel)}${v.legacy ? ' · from older map' : ''}</p>`;
   togglePlInfo(false);
   $('#pl-caption').innerHTML = ''; $('#pl-bar').style.width = '0';
+  const v0 = v; $('#pl-poster').style.cssText = thumbStyle(v0, innerWidth, innerHeight); $('#pl-poster').hidden = false;
+  const wasHidden = $('#player').hidden;
   $('#player').hidden = false; document.body.classList.add('playing');
-  updateMuteBtn(); updateCC(); sizeFrame(); PL.raf = requestAnimationFrame(tick);
+  PL.origin = originRect || null;
+  if (wasHidden && originRect) animateClip($('#player'), clipFor(originRect), 'inset(0px 0px 0px 0px round 0px)', 350);
+  updateMuteBtn(); updateCC(); updateHD(); sizeFrame(); PL.raf = requestAnimationFrame(tick);
   renderMarkers(vis);
 }
 function togglePlInfo(force) {
@@ -312,9 +390,17 @@ function togglePlInfo(force) {
 function stepPlayer(d) { const vis = visibleVideos(); if (!vis.length) return; const i = vis.findIndex(x => x.id === PL.id); openPlayer(vis[(i + d + vis.length) % vis.length].id); }
 function closePlayer() {
   if ($('#player').hidden) return;
-  cancelAnimationFrame(PL.raf); clearTimeout(PL.fallbackT);
-  ytCommand('pauseVideo'); $('#player').hidden = true; PL.id = null; PL.state = -1;
-  document.body.classList.remove('playing'); selectedVideo = null; if (CITY) renderMarkers(visibleVideos());
+  cancelAnimationFrame(PL.raf); clearTimeout(PL.fallbackT); clearTimeout(PL.revealT); PL.revealT = null;
+  ytCommand('pauseVideo');
+  const id = PL.id; PL.id = null; PL.state = -1;
+  document.body.classList.remove('playing'); selectedVideo = null;
+  const finish = () => { $('#player').hidden = true; $('#player').style.clipPath = ''; if (CITY) renderMarkers(visibleVideos()); };
+  // target = the pin's current position if it's on screen (map view), else no animation
+  const pinEl = id && state.view === 'map' && markers.get(id)?.getElement()?.querySelector('.pth,.pdot');
+  const r = pinEl?.getBoundingClientRect();
+  const onScreen = r && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
+  if (onScreen && !reduceMotion()) { $('#pl-poster').hidden = false; $('#player').style.clipPath = clipFor(r); animateClip($('#player'), 'inset(0px 0px 0px 0px round 0px)', clipFor(r), 300, finish); }
+  else finish();
 }
 window.addEventListener('message', e => {
   let host = ''; try { host = new URL(e.origin).hostname; } catch {}
@@ -333,6 +419,8 @@ window.addEventListener('message', e => {
     if (PL.state === 1) { PL.time = curTime(); }            // freeze interpolated time on pause
     PL.state = st; PL.timeAt = performance.now();
     if (st === 1) {
+      $('#pl-poster').hidden = true;
+      if (!PL.revealed && !PL.revealT) scheduleReveal();
       ytCommand('unloadModule', ['captions']);
       if (PL.autoplay === 'trying-unmuted' && !PL.muted) PL.autoplay = 'unmuted';
       if (PL.autoplay === 'muted-fallback' && performance.now() - PL.tapAt < 4500) {
@@ -346,6 +434,8 @@ window.addEventListener('message', e => {
   if (d.event === 'infoDelivery' && d.info) {
     if ('currentTime' in d.info) { PL.time = d.info.currentTime; PL.timeAt = performance.now(); }
     if ('duration' in d.info && d.info.duration) PL.dur = d.info.duration;
+    if ('playbackQuality' in d.info) PL.quality = d.info.playbackQuality;
+    if ('availableQualityLevels' in d.info) PL.levels = d.info.availableQualityLevels;
     if ('muted' in d.info) { PL.ytMuted = d.info.muted; if (d.info.muted !== PL.muted) { PL.muted = d.info.muted; updateMuteBtn(); if (PL.muted && PL.autoplay === 'trying-unmuted') PL.autoplay = 'muted-by-youtube'; } }
     if ('playerState' in d.info) setState(d.info.playerState);
   }
@@ -383,7 +473,9 @@ function renderPatterns(vis) {
   $('#view-patterns').innerHTML = html;
 }
 function renderActiveTags() {
-  $('#active-tags').innerHTML = [...state.tags].map(t => `<button class="chip on" data-tag="${esc(t)}" aria-label="Remove filter ${esc(t)}">${esc(t)} <span class="x">×</span></button>`).join('');
+  const qv = $('#q').value.trim();
+  $('#search-btn .dot').hidden = !state.q;
+  $('#active-tags').innerHTML = (state.q ? `<button class="chip on qchip" data-clearq="1" aria-label="Clear search ${esc(qv)}">🔍 ${esc(qv)} <span class="x">×</span></button>` : '') + [...state.tags].map(t => `<button class="chip on" data-tag="${esc(t)}" aria-label="Remove filter ${esc(t)}">${esc(t)} <span class="x">×</span></button>`).join('');
 }
 function render() {
   const vis = visibleVideos();
@@ -411,13 +503,19 @@ function bindUI() {
     if (fit) fitToResults(true); else fitT = setTimeout(() => fitToResults(false), 900);
   };
   ['input', 'keyup', 'compositionend', 'search', 'change'].forEach(ev => q.addEventListener(ev, () => { clearTimeout(t); t = setTimeout(() => applySearch(false), 60); }));
-  $('#search-form').addEventListener('submit', e => { e.preventDefault(); clearTimeout(t); applySearch(true); q.blur(); });
+  $('#search-form').addEventListener('submit', e => { e.preventDefault(); clearTimeout(t); applySearch(true); closeSearch(); });
+  $('#search-btn').addEventListener('click', () => { if ($('#search-pop').hidden) openSearch(); else closeSearch(); });
+  $('#search-close').addEventListener('click', () => { clearTimeout(t); applySearch(false); closeSearch(); });
+  $('#about-btn').addEventListener('click', openAbout);
+  $('#about-close').addEventListener('click', closeAbout);
+  $('#about-trailer').addEventListener('click', playTrailer);
   $$('.tab[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
   $('#pl-close').addEventListener('click', closePlayer);
   $('#pl-info-btn').addEventListener('click', () => togglePlInfo());
   $('#pl-prev').addEventListener('click', () => stepPlayer(-1));
   $('#pl-next').addEventListener('click', () => stepPlayer(1));
   $('#pl-mute').addEventListener('click', () => { setMuted(!PL.muted); if (PL.state !== 1) ytCommand('playVideo'); });
+  $('#pl-hd').addEventListener('click', () => { PL.k = PL.k > 1 ? 1 : 2; localStorage.setItem(HD_KEY, PL.k > 1 ? 'on' : 'off'); updateHD(); sizeFrame(); });
   $('#pl-cc').addEventListener('click', () => { PL.cc = !PL.cc; localStorage.setItem(CC_KEY, PL.cc ? 'on' : 'off'); updateCC(); });
   $('#pl-tap').addEventListener('click', () => {
     if (PL.state === 1 && PL.muted && /muted/.test(PL.autoplay) && !PL.userToggled) { PL.userToggled = true; setMuted(false); return; }  // first tap after a blocked autoplay = sound on
@@ -437,11 +535,12 @@ function bindUI() {
   document.addEventListener('click', e => {
     const chip = e.target.closest('[data-tag]'); if (chip) { e.stopPropagation(); const bar = chip.classList.contains('bar'); if (bar) setView('map'); toggleTag(chip.dataset.tag); return; }
     if (e.target.closest('.pl-info-close')) return togglePlInfo(false);
+    if (e.target.closest('[data-clearq]')) { $('#q').value = ''; state.q = ''; render(); fitToResults(false, true); return; }
     const card = e.target.closest('.card[data-vid]');
-    if (card) { const v = CITY.byId[card.dataset.vid]; setView('map'); map.setView([v.lat, v.lng], Math.max(map.getZoom(), 16)); openPlayer(v.id); }
+    if (card) { const v = CITY.byId[card.dataset.vid]; setView('map'); map.setView([v.lat, v.lng], Math.max(map.getZoom(), 16)); openPlayer(v.id, card.querySelector('.cthumb')?.getBoundingClientRect()); }
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { if (!$('#pl-info').hidden) return togglePlInfo(false); closePlayer(); closeAdd(); }
+    if (e.key === 'Escape') { if (!$('#pl-info').hidden) return togglePlInfo(false); closePlayer(); closeAdd(); closeSearch(); closeAbout(); }
     if (e.key === 'Enter' && e.target.matches('.card')) e.target.click();
   });
   initAdd();
