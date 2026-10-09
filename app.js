@@ -548,7 +548,7 @@ function renderPatterns(vis) {
   const contrib = {}; vis.forEach(v => { if (v.name) contrib[v.name] = (contrib[v.name] || 0) + 1; });
   const bars = (entries, max, tagged = true) => `<div class="bars">${entries.map(([label, n]) =>
     `<button class="bar" ${tagged ? `data-tag="${esc(label)}"` : 'disabled'}><span>${esc(label)}</span><span class="track"><span class="fill" style="width:${Math.max(6, 100 * n / max)}%"></span></span><span class="n">${n}</span></button>`).join('')}</div>`;
-  let html = `<h2>Patterns</h2><p class="note">Tags are <strong>auto-generated</strong> from YouTube titles and auto-captions using keyword rules (prototype). They can be wrong. Counts = number of videos${state.q || state.tags.size ? ' matching your current search/filters' : ''} (${vis.length}). Tap a bar to filter.</p>`;
+  let html = `<p class="note">Tap a bar to filter.</p>`;
   for (const [type, label] of Object.entries(groups)) {
     const e = Object.entries(counts).filter(([k]) => k.startsWith(type + '|')).map(([k, n]) => [k.split('|')[1], n]).sort((a, b) => b[1] - a[1]).slice(0, 12);
     if (!e.length) continue;
@@ -556,6 +556,7 @@ function renderPatterns(vis) {
   }
   const ce = Object.entries(contrib).sort((a, b) => b[1] - a[1]);
   html += `<h3>Contributors</h3>` + bars(ce, ce[0]?.[1] || 1, false);
+  html += `<p class="note">Tags are <strong>auto-generated</strong> from YouTube titles and auto-captions using keyword rules (prototype). They can be wrong. Counts = number of videos${state.q || state.tags.size ? ' matching your current search/filters' : ''} (${vis.length}).</p>`;
   $('#view-patterns').innerHTML = html;
 }
 function renderActiveTags() {
