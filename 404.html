@@ -33,16 +33,31 @@
 <div id="app" class="app" hidden>
   <header class="topbar">
     <a href="./" class="brand" aria-label="CROYTOPIA home"><img src="assets/logo-640.webp" width="640" height="96" alt="CROYTOPIA"></a>
-    <div class="search">
-      <input id="q" type="search" placeholder="Search memories, places, words…" aria-label="Search" enterkeyhint="search" autocomplete="off">
+    <form class="search" id="search-form" role="search" action="#" onsubmit="return false">
+      <input id="q" name="q" type="search" inputmode="search" placeholder="Search memories, places, words…" aria-label="Search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       <span id="count" class="count" aria-live="polite"></span>
-    </div>
+    </form>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="active-tags" class="chips active" aria-label="Active tag filters"></div>
   </header>
 
   <main>
     <section id="view-cities" class="view cities" hidden></section>
-    <section id="view-map" class="view mapview"><div id="map" aria-label="Map of memories"></div></section>
+    <section id="view-map" class="view mapview"><div id="map" aria-label="Map of memories"></div>
+      <div class="pinstyle">
+        <div class="mapbtns">
+          <button id="pinstyle-btn" class="pinstyle-btn" aria-expanded="false" aria-controls="pinstyle-panel">Pin style ▾</button>
+          <button id="crazy-btn" class="crazy-btn" aria-pressed="false" title="Shortcut for Pin style → Live video: play clips on the map at once (muted)">⚡ Crazy mode</button>
+        </div>
+        <div id="crazy-note" class="crazy-note" hidden></div>
+        <fieldset id="pinstyle-panel" class="pinstyle-panel" hidden>
+          <legend>Show on pins</legend>
+          <label><input type="checkbox" name="ps" value="thumb"> Thumbnail</label>
+          <label><input type="checkbox" name="ps" value="name"> Name</label>
+          <label><input type="checkbox" name="ps" value="desc"> Description</label>
+          <label class="ps-live"><input type="checkbox" name="ps" value="live"> Live video <small>(silent, plays at the pin)</small></label>
+        </fieldset>
+      </div></section>
     <section id="view-list" class="view list" hidden><ul id="list" class="cards"></ul></section>
     <section id="view-patterns" class="view patterns" hidden></section>
   </main>
@@ -54,10 +69,18 @@
     <button id="add-btn" class="tab add"><span aria-hidden="true">＋</span>Add</button>
   </nav>
 
-  <!-- Bottom sheet -->
-  <div id="sheet" class="sheet" role="dialog" aria-modal="false" aria-labelledby="sheet-title" hidden>
-    <button class="sheet-handle" id="sheet-close" aria-label="Close"><span></span></button>
-    <div id="sheet-body" class="sheet-body"></div>
+  <!-- Full-height vertical player -->
+  <div id="player" class="player" role="dialog" aria-modal="true" aria-labelledby="pl-title" hidden>
+    <div class="pl-scroll">
+      <div class="pl-stage" id="pl-stage"><div class="pl-frame" id="pl-frame"></div>
+        <button id="pl-close" class="pl-btn pl-close" aria-label="Close player">✕</button>
+        <button id="pl-unmute" class="pl-btn pl-unmute" aria-label="Turn sound on">🔇 Tap for sound</button>
+        <button id="pl-prev" class="pl-btn pl-nav prev" aria-label="Previous memory">‹</button>
+        <button id="pl-next" class="pl-btn pl-nav next" aria-label="Next memory">›</button>
+        <button id="pl-info-btn" class="pl-btn pl-infobtn" aria-expanded="false" aria-controls="pl-info"><span class="i">i</span> Tags</button>
+        <div class="pl-info" id="pl-info" role="region" aria-label="About this memory" hidden></div>
+      </div>
+    </div>
   </div>
 
   <!-- Add-your-video (mock) -->
