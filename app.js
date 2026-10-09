@@ -147,11 +147,12 @@ let selectedVideo = null;
 function initMap() {
   if (map) { map.remove(); markers.clear(); }
   map = L.map('map', { zoomControl: false, attributionControl: true, tap: true, zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 120 }).setView(CITY.city.center, CITY.city.zoom);
+  window.__croytopiaMap = map;
   { const ab = document.createElement('button'); ab.id = 'attr-btn'; ab.className = 'attr-btn'; ab.type = 'button'; ab.textContent = 'ⓘ'; ab.setAttribute('aria-label', 'Map credits'); ab.setAttribute('aria-expanded', 'false');
     ab.addEventListener('click', e => { e.stopPropagation(); const on = $('#view-map').classList.toggle('attr-open'); ab.setAttribute('aria-expanded', String(on)); });
     L.DomEvent.disableClickPropagation(ab); $('#view-map').appendChild(ab); map.on('click', () => { $('#view-map').classList.remove('attr-open'); ab.setAttribute('aria-expanded', 'false'); }); }
   addBaseLayers(map);
-  L.control.zoom({ position: 'topright' }).addTo(map);
+  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl();
   layer = L.layerGroup().addTo(map);
   // Clips sharing a place get a small ring offset so every clip has its own tappable pin.
   const byPlace = {};
@@ -171,6 +172,38 @@ function initMap() {
 function chromeInsets() {
   const h = document.querySelector('.topbar').getBoundingClientRect(), t = document.querySelector('.tabbar').getBoundingClientRect();
   return { top: Math.round(h.bottom), bottom: Math.round(innerHeight - t.top) + 34 };   // +34: pin-style button / ⓘ row
+}
+// Locate me: crosshair under the zoom buttons → pulsing neon dot + accuracy circle; graceful when denied / far away.
+const ME = { marker: null, circle: null };
+function addLocateControl() {
+  const C = L.Control.extend({ options: { position: 'topright' }, onAdd() {
+    const b = L.DomUtil.create('button', 'locate-btn'); b.type = 'button'; b.id = 'locate-btn'; b.setAttribute('aria-label', 'Show my location');
+    b.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+    L.DomEvent.disableClickPropagation(b); L.DomEvent.on(b, 'click', locateMe); return b; } });
+  map.addControl(new C());
+}
+function backToCity() { const { bounds, opts } = tightFit(CITY.videos, 22); map.flyToBounds(bounds, { ...opts, duration: reduceMotion() ? 0 : 1.2 }); }
+function locateMe() {
+  const b = $('#locate-btn');
+  if (!navigator.geolocation) return toast('Location isn’t available on this device');
+  b.classList.add('busy');
+  navigator.geolocation.getCurrentPosition(pos => {
+    b.classList.remove('busy'); b.classList.add('on');
+    const ll = L.latLng(pos.coords.latitude, pos.coords.longitude), acc = Math.min(pos.coords.accuracy || 50, 5000);
+    if (!ME.marker) {
+      ME.circle = L.circle(ll, { radius: acc, color: '#2ef2ce', weight: 1, opacity: .7, fillColor: '#2ef2ce', fillOpacity: .12, interactive: false }).addTo(map);
+      ME.marker = L.marker(ll, { icon: L.divIcon({ className: 'me-dot', html: '<span class="me-pulse"></span><span class="me-core"></span>', iconSize: [22, 22], iconAnchor: [11, 11] }), interactive: false, keyboard: false, zIndexOffset: 2000 }).addTo(map);
+    } else { ME.marker.setLatLng(ll); ME.circle.setLatLng(ll).setRadius(acc); }
+    window.__croytopiaMe = { lat: ll.lat, lng: ll.lng, acc };
+    const km = ll.distanceTo(L.latLng(CITY.city.center)) / 1000;
+    if (km > 25) {
+      map.flyTo(ll, 12, { duration: reduceMotion() ? 0 : 1.5 });
+      toast(`You’re about ${Math.round(km)} km from ${CITY.city.name || 'Croydon'}`, { label: `Back to ${CITY.city.name || 'Croydon'}`, fn: backToCity });
+    } else map.flyTo(ll, Math.max(map.getZoom(), 16), { duration: reduceMotion() ? 0 : 1.2 });
+  }, err => {
+    b.classList.remove('busy');
+    toast(err.code === 1 ? 'Location permission denied — you can allow it in your browser settings' : 'Couldn’t get your location right now');
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
 }
 function tightFit(vids, loose = 0) {
   const r = pinStyle.thumb ? 25 : 13, label = (pinStyle.name || pinStyle.desc) ? (pinStyle.desc ? 150 : 56) : 0, c = chromeInsets();
@@ -203,7 +236,11 @@ function fitToResults(fromEnter, evenIfAll) {
   else if (fromEnter && state.view !== 'map') $('#view-' + state.view).scrollTop = 0;
 }
 let toastT;
-function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 2200); }
+function toast(msg, action) {
+  const el = $('#toast'); el.textContent = msg; el.hidden = false; el.classList.toggle('has-action', !!action); clearTimeout(toastT);
+  if (action) { const b = document.createElement('button'); b.type = 'button'; b.className = 'toast-act'; b.textContent = action.label; b.onclick = () => { el.hidden = true; action.fn(); }; el.append(' ', b); }
+  toastT = setTimeout(() => el.hidden = true, action ? 7000 : 2200);
+}
 
 // Search pop-up (magnifier in the toolbar). Focus is set synchronously inside the tap so mobile keyboards open.
 function openSearch() {
@@ -358,6 +395,16 @@ function animateClip(el, from, to, ms, done) {
   const a = el.animate([{ clipPath: from }, { clipPath: to }], { duration: ms, easing: 'cubic-bezier(.2,.8,.2,1)' });
   a.onfinish = () => done?.(); PL.anim = a;
 }
+// Neon ring that grows from the pin's circle out to the screen edges (open) or shrinks back into it (close).
+function animateRing(r, open, ms) {
+  let ring = $('#pl-ring'); if (!ring) { ring = document.createElement('div'); ring.id = 'pl-ring'; ring.setAttribute('aria-hidden', 'true'); document.body.appendChild(ring); }
+  const pin = { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', borderRadius: Math.min(r.width, r.height) / 2 + 'px', opacity: 1 };
+  const full = { left: '0px', top: '0px', width: innerWidth + 'px', height: innerHeight + 'px', borderRadius: '0px', opacity: 1 };
+  ring.hidden = false;
+  const a = ring.animate(open ? [pin, full, { ...full, opacity: 0 }] : [{ ...full, opacity: 0.4 }, pin, { ...pin, opacity: 0 }],
+    { duration: ms + 160, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+  a.onfinish = () => { ring.hidden = true; a.cancel(); };
+}
 function openPlayer(id, originRect) {
   const v = CITY.byId[id]; if (!v) return;
   cancelAnimationFrame(PL.raf); clearTimeout(PL.fallbackT); clearTimeout(PL.revealT); PL.revealT = null; closeSearch();
@@ -381,11 +428,11 @@ function openPlayer(id, originRect) {
     <p class="muted">${v.duration ? Math.round(v.duration) + 's · ' : ''}${esc(v.uploadDate || '')} · YouTube: ${esc(v.channel)}${v.legacy ? ' · from older map' : ''}</p>`;
   togglePlInfo(false);
   $('#pl-caption').innerHTML = ''; $('#pl-bar').style.width = '0';
-  const v0 = v; $('#pl-poster').style.cssText = thumbStyle(v0, innerWidth, innerHeight); $('#pl-poster').hidden = false;
+  $('#pl-stage').classList.remove('pl-live');   // video stays invisible on a dark stage until it's actually playing
   const wasHidden = $('#player').hidden;
   $('#player').hidden = false; document.body.classList.add('playing');
   PL.origin = originRect || null;
-  if (wasHidden && originRect) animateClip($('#player'), clipFor(originRect), 'inset(0px 0px 0px 0px round 0px)', 350);
+  if (wasHidden && originRect && !reduceMotion()) { animateClip($('#player'), clipFor(originRect), 'inset(0px 0px 0px 0px round 0px)', 420); animateRing(originRect, true, 420); }
   updateMuteBtn(); updateCC(); updateHD(); sizeFrame(); PL.raf = requestAnimationFrame(tick);
   renderMarkers(vis);
 }
@@ -405,8 +452,10 @@ function closePlayer() {
   const pinEl = id && state.view === 'map' && markers.get(id)?.getElement()?.querySelector('.pth,.pdot');
   const r = pinEl?.getBoundingClientRect();
   const onScreen = r && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
-  if (onScreen && !reduceMotion()) { $('#pl-poster').hidden = false; $('#player').style.clipPath = clipFor(r); animateClip($('#player'), 'inset(0px 0px 0px 0px round 0px)', clipFor(r), 300, finish); }
-  else finish();
+  if (onScreen && !reduceMotion()) {
+    $('#pl-stage').classList.remove('pl-live');           // video fades out first, then the frame contracts into the pin's ring
+    setTimeout(() => { $('#player').style.clipPath = clipFor(r); animateClip($('#player'), 'inset(0px 0px 0px 0px round 0px)', clipFor(r), 380, finish); animateRing(r, false, 380); }, 160);
+  } else finish();
 }
 window.addEventListener('message', e => {
   let host = ''; try { host = new URL(e.origin).hostname; } catch {}
@@ -425,7 +474,7 @@ window.addEventListener('message', e => {
     if (PL.state === 1) { PL.time = curTime(); }            // freeze interpolated time on pause
     PL.state = st; PL.timeAt = performance.now();
     if (st === 1) {
-      $('#pl-poster').hidden = true;
+      $('#pl-stage').classList.add('pl-live');
       if (!PL.revealed && !PL.revealT) scheduleReveal();
       ytCommand('unloadModule', ['captions']);
       if (PL.autoplay === 'trying-unmuted' && !PL.muted) PL.autoplay = 'unmuted';

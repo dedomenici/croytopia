@@ -275,3 +275,24 @@ main{position:absolute;inset:0}
 .attr-open .leaflet-control-attribution{display:block}
 .attr-btn{position:absolute;z-index:450;right:10px;bottom:calc(var(--tab) + var(--safe) + 12px);width:28px;height:28px;border-radius:50%;border:1px solid #2ef2ce66;background:#030807b0;color:#9fb3b0;font-size:16px;line-height:1;padding:0;cursor:pointer}
 .attr-open .attr-btn{color:var(--neon)}
+
+/* pin → player: neon ring transition, video fades in only once playing */
+#pl-ring{position:fixed;z-index:960;pointer-events:none;box-sizing:border-box;border:3px solid var(--neon);box-shadow:0 0 10px var(--neon),0 0 24px #2ef2ce88,inset 0 0 12px #2ef2ce66}
+#pl-ring[hidden]{display:none}
+.pl-stage{background:#000}
+.pl-stage .pl-frame{opacity:0;transition:opacity .15s ease}
+.pl-stage.pl-live .pl-frame{opacity:1;transition:opacity .35s ease}
+.pl-poster{display:none!important}
+@media (prefers-reduced-motion: reduce){.pl-stage .pl-frame,.pl-stage.pl-live .pl-frame{transition:none}}
+
+.locate-btn{width:34px;height:34px;margin-top:8px!important;border-radius:10px;border:1px solid #2ef2ce99;background:#030807d9;color:#cfe;display:grid;place-items:center;padding:0;cursor:pointer;box-shadow:0 0 8px #2ef2ce44}
+.locate-btn.on{color:var(--neon);filter:drop-shadow(0 0 4px var(--neon))}
+.locate-btn.busy svg{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.me-dot{position:relative}
+.me-core{position:absolute;left:5px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--neon);border:2px solid #fff;box-shadow:0 0 8px var(--neon),0 0 18px var(--neon)}
+.me-pulse{position:absolute;inset:0;border-radius:50%;background:#2ef2ce66;animation:mepulse 1.8s ease-out infinite}
+@keyframes mepulse{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2.6);opacity:0}}
+@media (prefers-reduced-motion: reduce){.me-pulse{animation:none;opacity:.4}}
+.toast.has-action{pointer-events:auto}
+.toast-act{margin-left:.5rem;border:1px solid var(--neon);background:transparent;color:var(--neon);border-radius:999px;padding:.3rem .7rem;font:600 13px/1 system-ui;cursor:pointer}
