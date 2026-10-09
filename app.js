@@ -106,7 +106,7 @@ function initMap() {
     ab.addEventListener('click', e => { e.stopPropagation(); const on = $('#view-map').classList.toggle('attr-open'); ab.setAttribute('aria-expanded', String(on)); });
     L.DomEvent.disableClickPropagation(ab); $('#view-map').appendChild(ab); map.on('click', () => { $('#view-map').classList.remove('attr-open'); ab.setAttribute('aria-expanded', 'false'); }); }
   addBaseLayers(map);
-  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl(); addSoundControl(); map.on('move zoom', livePlace); 
+  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl(); map.on('move zoom', livePlace); 
   layer = L.layerGroup().addTo(map);
   // Clips sharing a place get a small ring offset so every clip has its own tappable pin.
   const byPlace = {};
@@ -263,7 +263,7 @@ function pinHTML(v) {
 // Sound follows the map's volume button (default muted); unmuting happens inside that button's tap.
 const LIVE = { idx: -1, id: null, timer: null, wrap: null, frame: null, ready: false, state: -1, pending: null };
 const SND_KEY = 'croytopia.pinsound';
-let pinSound = localStorage.getItem(SND_KEY) === 'on';
+let pinSound = false;   // animated pins always play muted (map volume button removed)
 function liveCmd(func, args = []) { LIVE.frame?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); }
 function liveEnsure() {
   if (LIVE.frame) return;
