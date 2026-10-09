@@ -49,6 +49,7 @@
           <label><input type="checkbox" name="ps" value="thumb"> Thumbnail</label>
           <label><input type="checkbox" name="ps" value="name"> Name</label>
           <label><input type="checkbox" name="ps" value="desc"> Description</label>
+          <label><input type="checkbox" name="ps" value="anim"> Animated <small class="muted">(silent, max 6 on screen)</small></label>
         </fieldset>
       </div></section>
     <section id="view-list" class="view list" hidden><ul id="list" class="cards"></ul></section>
@@ -57,8 +58,8 @@
 
   <nav class="tabbar" aria-label="Views">
     <button data-view="map" class="tab active" aria-current="page"><span aria-hidden="true">◉</span>Map</button>
-    <button data-view="list" class="tab"><span aria-hidden="true">☰</span>List</button>
     <button data-view="patterns" class="tab"><span aria-hidden="true">▤</span>Patterns</button>
+    <button data-view="list" class="tab"><span aria-hidden="true">☰</span>List</button>
     <button id="search-btn" class="tab" aria-label="Search" aria-controls="search-pop" aria-expanded="false"><span aria-hidden="true"><svg viewBox="0 0 24 24" width="21" height="21"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 15.5L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>Search<i class="dot" hidden></i></button>
     <button id="about-btn" class="tab"><span aria-hidden="true">ⓘ</span>About</button>
     <button id="add-btn" class="tab add" aria-label="Upload your video"><span aria-hidden="true">＋</span>Upload</button>

@@ -152,7 +152,7 @@ function initMap() {
     ab.addEventListener('click', e => { e.stopPropagation(); const on = $('#view-map').classList.toggle('attr-open'); ab.setAttribute('aria-expanded', String(on)); });
     L.DomEvent.disableClickPropagation(ab); $('#view-map').appendChild(ab); map.on('click', () => { $('#view-map').classList.remove('attr-open'); ab.setAttribute('aria-expanded', 'false'); }); }
   addBaseLayers(map);
-  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl();
+  L.control.zoom({ position: 'topright' }).addTo(map); addLocateControl(); map.on('moveend zoomend', () => setTimeout(updateLivePins, 50));
   layer = L.layerGroup().addTo(map);
   // Clips sharing a place get a small ring offset so every clip has its own tappable pin.
   const byPlace = {};
@@ -301,6 +301,28 @@ function pinHTML(v) {
   if (pinStyle.desc && v.blurb) lines.push(`<i>${esc(v.blurb)}</i>`);
   return `<div class="vpin ${selectedVideo === v.id ? 'sel' : ''}" style="--s:${S}px">${dot}${lines.length ? `<span class="plbl">${lines.join('')}</span>` : ''}</div>`;
 }
+// Animated pins: silent looping embeds inside the circles of on-screen pins only, nearest the centre first, max 6 (4 when
+// the panel's narrow). Re-evaluated after every pan/zoom; off-screen ones are removed so they stop loading.
+const LIVE_MAX = 6; const live = new Map();
+function updateLivePins() {
+  const want = new Set();
+  if (pinStyle.anim && pinStyle.thumb && map && $('#player').hidden && state.view === 'map') {
+    const size = map.getSize(), c = size.divideBy(2);
+    [...markers.entries()].map(([id, m]) => [id, map.latLngToContainerPoint(m.getLatLng())])
+      .filter(([, pt]) => pt.x > 0 && pt.y > 0 && pt.x < size.x && pt.y < size.y).sort((a, b) => a[1].distanceTo(c) - b[1].distanceTo(c))
+      .slice(0, LIVE_MAX).forEach(([id]) => want.add(id));
+  }
+  for (const [id, f] of live) if (!want.has(id) || !f.isConnected) { f.remove(); live.delete(id); }
+  for (const id of want) {
+    if (live.has(id)) continue;
+    const host = markers.get(id)?.getElement()?.querySelector('.pth'); if (!host) continue;
+    const f = document.createElement('iframe'); f.className = 'pth-live'; f.tabIndex = -1; f.setAttribute('aria-hidden', 'true'); f.allow = 'autoplay';
+    f.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&controls=0&loop=1&playlist=${id}&playsinline=1&disablekb=1&fs=0&rel=0&iv_load_policy=3&cc_load_policy=0`;
+    const k = (host.clientWidth || 42) / 320 * 1.05; f.style.transform = `scale(${k}) translate(-50%,-50%)`;   // big player scaled down = YouTube's centre icon becomes tiny
+    host.appendChild(f); live.set(id, f);
+  }
+  window.__croytopiaLive = live.size;
+}
 function renderMarkers(vis) {
   layer.clearLayers();
   vis.forEach(v => {
@@ -309,6 +331,7 @@ function renderMarkers(vis) {
     m.setZIndexOffset(selectedVideo === v.id ? 3000 : 0);
     layer.addLayer(m);
   });
+  updateLivePins();
 }
 
 
@@ -585,7 +608,7 @@ function bindUI() {
   psBtn.addEventListener('click', () => { psPanel.hidden = !psPanel.hidden; psBtn.setAttribute('aria-expanded', String(!psPanel.hidden)); });
   $$('input[name=ps]').forEach(cb => {
     cb.checked = !!pinStyle[cb.value];
-    cb.addEventListener('change', () => { pinStyle[cb.value] = cb.checked; savePinStyle(); renderMarkers(visibleVideos()); });
+    cb.addEventListener('change', () => { pinStyle[cb.value] = cb.checked; savePinStyle(); renderMarkers(visibleVideos()); updateLivePins(); });
   });
   document.addEventListener('click', e => {
     const chip = e.target.closest('[data-tag]'); if (chip) { e.stopPropagation(); const bar = chip.classList.contains('bar'); if (bar) setView('map'); toggleTag(chip.dataset.tag); return; }
