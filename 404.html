@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<base href="/croytopia/">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07090b">
+<meta name="robots" content="noindex, nofollow">
+<title>CROYTOPIA — prototype</title>
+<meta name="description" content="Prototype: a map of personal memories of places, told on video.">
+<link rel="icon" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preload" as="image" href="assets/logo-640.webp" type="image/webp">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!-- Password gate -->
+<section id="gate" class="gate" aria-labelledby="gate-title">
+  <img class="gate-logo" src="assets/logo-640.webp" width="640" height="96" alt="CROYTOPIA">
+  <h1 id="gate-title" class="sr-only">CROYTOPIA prototype – enter password</h1>
+  <p class="gate-sub">Private prototype</p>
+  <form id="gate-form" autocomplete="off">
+    <label for="gate-pw" class="sr-only">Password</label>
+    <input id="gate-pw" type="password" inputmode="text" autocapitalize="characters" placeholder="Password" required>
+    <button type="submit" class="neon-btn">Unlock</button>
+    <p id="gate-msg" class="gate-msg" role="alert" aria-live="assertive"></p>
+  </form>
+</section>
+
+<!-- App shell -->
+<div id="app" class="app" hidden>
+  <header class="topbar">
+    <a href="./" class="brand" aria-label="CROYTOPIA home"><img src="assets/logo-640.webp" width="640" height="96" alt="CROYTOPIA"></a>
+    <div class="search">
+      <input id="q" type="search" placeholder="Search memories, places, words…" aria-label="Search" enterkeyhint="search" autocomplete="off">
+      <span id="count" class="count" aria-live="polite"></span>
+    </div>
+    <div id="active-tags" class="chips active" aria-label="Active tag filters"></div>
+  </header>
+
+  <main>
+    <section id="view-cities" class="view cities" hidden></section>
+    <section id="view-map" class="view mapview"><div id="map" aria-label="Map of memories"></div></section>
+    <section id="view-list" class="view list" hidden><ul id="list" class="cards"></ul></section>
+    <section id="view-patterns" class="view patterns" hidden></section>
+  </main>
+
+  <nav class="tabbar" aria-label="Views">
+    <button data-view="map" class="tab active" aria-current="page"><span aria-hidden="true">◉</span>Map</button>
+    <button data-view="list" class="tab"><span aria-hidden="true">☰</span>List</button>
+    <button data-view="patterns" class="tab"><span aria-hidden="true">▤</span>Patterns</button>
+    <button id="add-btn" class="tab add"><span aria-hidden="true">＋</span>Add</button>
+  </nav>
+
+  <!-- Bottom sheet -->
+  <div id="sheet" class="sheet" role="dialog" aria-modal="false" aria-labelledby="sheet-title" hidden>
+    <button class="sheet-handle" id="sheet-close" aria-label="Close"><span></span></button>
+    <div id="sheet-body" class="sheet-body"></div>
+  </div>
+
+  <!-- Add-your-video (mock) -->
+  <div id="add" class="modal" role="dialog" aria-modal="true" aria-labelledby="add-title" hidden>
+    <div class="modal-inner">
+      <div class="proto-banner">PROTOTYPE · nothing is uploaded or stored</div>
+      <button class="modal-x" id="add-close" aria-label="Close">✕</button>
+      <h2 id="add-title">Add your memory</h2>
+      <ol class="steps" id="steps"><li class="on">Video</li><li>Place</li><li>You</li><li>Done</li></ol>
+      <div class="step" data-step="1">
+        <p>Film yourself at a place that means something to you. Vertical, about a minute, no script.</p>
+        <label class="neon-btn file">Record or choose a video
+          <input id="add-file" type="file" accept="video/*" capture="environment" hidden>
+        </label>
+        <video id="add-preview" playsinline controls muted hidden></video>
+        <p id="add-file-info" class="muted"></p>
+        <button class="next neon-btn ghost" data-next="2" disabled id="next1">Next</button>
+      </div>
+      <div class="step" data-step="2" hidden>
+        <p>Drop the pin where you filmed it. Tap the map, or use your location.</p>
+        <div id="add-map" class="add-map"></div>
+        <button type="button" id="add-locate" class="neon-btn ghost small">Use my location</button>
+        <label>Place name <input id="add-place" placeholder="e.g. Allders, Clocktower"></label>
+        <p id="add-pin-info" class="muted">No pin yet</p>
+        <button class="next neon-btn ghost" data-next="3" id="next2" disabled>Next</button>
+      </div>
+      <div class="step" data-step="3" hidden>
+        <label>First name or pseudonym <input id="add-name" placeholder="e.g. Jess" maxlength="40"></label>
+        <fieldset class="consent"><legend>Consent (prototype wording)</legend>
+          <label><input type="checkbox" class="c" required> Show my video on the CROYTOPIA map</label>
+          <label><input type="checkbox" class="c2"> Use it on social media and in exhibitions</label>
+          <label><input type="checkbox" class="c" required> I'm 18+ (or my guardian consents) and I can withdraw at any time</label>
+        </fieldset>
+        <button class="neon-btn" id="add-submit" disabled>Submit (prototype)</button>
+      </div>
+      <div class="step" data-step="4" hidden>
+        <p class="done">✓ That's what submitting will feel like.</p>
+        <p class="muted">In this prototype nothing left your phone. In the real app your video would upload (resumably) to secure storage, be mirrored to YouTube as <em>unlisted</em>, auto-transcribed and tagged, then reviewed by a moderator before appearing on the map.</p>
+        <button class="neon-btn ghost" id="add-finish">Back to the map</button>
+      </div>
+    </div>
+  </div>
+</div>
+<noscript><p style="color:#fff;padding:2rem">CROYTOPIA needs JavaScript.</p></noscript>
+<script src="vendor/leaflet.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>

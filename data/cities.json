@@ -1,0 +1,31 @@
+{
+ "gate": {
+  "sha256": "8d11159e3768c83125f28a004ff16913abcb11a3d77d4433748ef3baff11163d"
+ },
+ "kdf": {
+  "salt": "Dh0/+8gsQjri7Gq5e/Nldw==",
+  "iterations": 210000
+ },
+ "cities": [
+  {
+   "slug": "croydon",
+   "name": "Croydon, London",
+   "brand": "CROYTOPIA",
+   "status": "live",
+   "blurb": "59 memories on the map",
+   "data": "data/croydon.enc.json"
+  },
+  {
+   "slug": "camden",
+   "name": "Camden, London",
+   "brand": "YOURTOPIA",
+   "status": "example"
+  },
+  {
+   "slug": "anywhere",
+   "name": "Your city",
+   "brand": "{CITY}TOPIA",
+   "status": "example"
+  }
+ ]
+}
