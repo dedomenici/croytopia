@@ -320,7 +320,7 @@ function liveShow(id) {
   const cmd = (func, args = []) => f.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
   f.addEventListener('load', () => f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'live', channel: 'widget' }), '*'));
   LIVE.state = -1; LIVE.sound = 'trying'; clearTimeout(LIVE.fb);
-  LIVE.fb = setTimeout(() => { if (LIVE.frame === f && LIVE.state !== 1) { LIVE.sound = 'muted-fallback'; cmd('mute'); cmd('playVideo'); } }, 1500);
+  LIVE.fb = setTimeout(() => { if (LIVE.frame === f && LIVE.state !== 1) { LIVE.sound = 'muted-fallback'; f.src = f.src.replace('mute=0', 'mute=1'); window.__croytopiaLiveInfo = { id, sound: LIVE.sound }; } }, 2000);
   host.appendChild(f); LIVE.frame = f;
 }
 window.addEventListener('message', e => {
