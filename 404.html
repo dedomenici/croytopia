@@ -47,15 +47,12 @@
       <div class="pinstyle">
         <div class="mapbtns">
           <button id="pinstyle-btn" class="pinstyle-btn" aria-expanded="false" aria-controls="pinstyle-panel">Pin style ▾</button>
-          <button id="crazy-btn" class="crazy-btn" aria-pressed="false" title="Shortcut for Pin style → Live video: play clips on the map at once (muted)">⚡ Crazy mode</button>
         </div>
-        <div id="crazy-note" class="crazy-note" hidden></div>
         <fieldset id="pinstyle-panel" class="pinstyle-panel" hidden>
           <legend>Show on pins</legend>
           <label><input type="checkbox" name="ps" value="thumb"> Thumbnail</label>
           <label><input type="checkbox" name="ps" value="name"> Name</label>
           <label><input type="checkbox" name="ps" value="desc"> Description</label>
-          <label class="ps-live"><input type="checkbox" name="ps" value="live"> Live video <small>(silent, plays at the pin)</small></label>
         </fieldset>
       </div></section>
     <section id="view-list" class="view list" hidden><ul id="list" class="cards"></ul></section>
@@ -69,17 +66,25 @@
     <button id="add-btn" class="tab add"><span aria-hidden="true">＋</span>Add</button>
   </nav>
 
-  <!-- Full-height vertical player -->
+  <!-- Full-height vertical player: YouTube iframe (controls=0) under our own controls + captions -->
   <div id="player" class="player" role="dialog" aria-modal="true" aria-labelledby="pl-title" hidden>
-    <div class="pl-scroll">
-      <div class="pl-stage" id="pl-stage"><div class="pl-frame" id="pl-frame"></div>
-        <button id="pl-close" class="pl-btn pl-close" aria-label="Close player">✕</button>
-        <button id="pl-unmute" class="pl-btn pl-unmute" aria-label="Turn sound on">🔇 Tap for sound</button>
-        <button id="pl-prev" class="pl-btn pl-nav prev" aria-label="Previous memory">‹</button>
-        <button id="pl-next" class="pl-btn pl-nav next" aria-label="Next memory">›</button>
+    <div class="pl-stage" id="pl-stage">
+      <div class="pl-frame" id="pl-frame"></div>
+      <div class="pl-shade" aria-hidden="true"></div>
+      <div class="pl-tap" id="pl-tap" role="button" aria-label="Play or pause"></div>
+      <div class="pl-bigplay" id="pl-bigplay" aria-hidden="true" hidden><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></div>
+      <div class="pl-caption" id="pl-caption" aria-live="off"></div>
+      <button id="pl-close" class="pl-btn pl-close" aria-label="Close player">✕</button>
+      <button id="pl-prev" class="pl-btn pl-nav prev" aria-label="Previous memory">‹</button>
+      <button id="pl-next" class="pl-btn pl-nav next" aria-label="Next memory">›</button>
+      <div class="pl-controls">
+        <button id="pl-mute" class="pl-btn pl-icon" aria-label="Mute"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button id="pl-cc" class="pl-btn pl-icon pl-cc on" aria-pressed="true" aria-label="Subtitles">CC</button>
+        <span class="pl-spacer"></span>
         <button id="pl-info-btn" class="pl-btn pl-infobtn" aria-expanded="false" aria-controls="pl-info"><span class="i">i</span> Tags</button>
-        <div class="pl-info" id="pl-info" role="region" aria-label="About this memory" hidden></div>
       </div>
+      <div class="pl-progress" id="pl-progress" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><span id="pl-bar"></span></div>
+      <div class="pl-info" id="pl-info" role="region" aria-label="About this memory" hidden></div>
     </div>
   </div>
 

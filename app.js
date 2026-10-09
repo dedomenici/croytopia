@@ -104,8 +104,7 @@ async function loadCity(c) {
     v._hay = norm([v.title, v.place, v.name, v.blurb, v.description, v.transcript, v.tags.map(t => t.t).join(' ')].join(' \n '));
   });
   document.title = `${CITY.city.brand} — prototype`;
-  initMap(); bindUI(); render(); setView('map');
-  if (pinStyle.live) setCrazy(true);
+  initMap(); bindUI(); render(); setView('map'); ensurePlayerFrame();
 }
 
 /* ---------- Filtering ---------- */
@@ -132,7 +131,7 @@ function highlight(text) {
 
 /* ---------- Pin style (thumbnail / name / description), saved in localStorage ---------- */
 const PS_KEY = 'croytopia.pinStyle.v1';
-let pinStyle = (() => { try { return { thumb: true, name: true, desc: false, live: false, ...JSON.parse(localStorage.getItem(PS_KEY) || '{}') }; } catch { return { thumb: true, name: true, desc: false, live: false }; } })();
+let pinStyle = (() => { try { return { thumb: true, name: true, desc: false, ...JSON.parse(localStorage.getItem(PS_KEY) || '{}') }; } catch { return { thumb: true, name: true, desc: false }; } })();
 function savePinStyle() { localStorage.setItem(PS_KEY, JSON.stringify(pinStyle)); }
 
 // Crop YouTube's 4:3 hqdefault (vertical clips are pillarboxed in it) so only the picture fills a box (cover).
@@ -147,8 +146,7 @@ function thumbStyle(v, W, H) {
 let selectedVideo = null;
 function initMap() {
   if (map) { map.remove(); markers.clear(); }
-  if (typeof crazy !== 'undefined') { crazy.layer = null; crazy.markers.clear(); crazy.on = false; }
-  map = L.map('map', { zoomControl: false, attributionControl: true, tap: true }).setView(CITY.city.center, CITY.city.zoom);
+  map = L.map('map', { zoomControl: false, attributionControl: true, tap: true, zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 120 }).setView(CITY.city.center, CITY.city.zoom);
   addBaseLayers(map);
   L.control.zoom({ position: 'topright' }).addTo(map);
   layer = L.layerGroup().addTo(map);
@@ -165,12 +163,16 @@ function initMap() {
   playIntro();
 
 }
+// Tight fit: just enough padding that the pin markers themselves (and name labels) aren't cut off.
+function tightFit(vids) {
+  const r = pinStyle.thumb ? 25 : 13, label = (pinStyle.name || pinStyle.desc) ? (pinStyle.desc ? 150 : 56) : 0;
+  return { bounds: L.latLngBounds(vids.map(v => markers.get(v.id)?.getLatLng() || [v.lat, v.lng])), opts: { paddingTopLeft: [r + 4, r + 4], paddingBottomRight: [r + 4 + label, r + 4], maxZoom: 18 } };
+}
 // Intro: start on all of London, then fly in to fit every pin (jump if the user prefers reduced motion).
 let introTimer;
 function playIntro() {
   clearTimeout(introTimer); map.stop?.();
-  const pinBounds = L.latLngBounds(CITY.videos.map(v => [v.lat, v.lng]));
-  const fitOpts = { padding: [40, 40], maxZoom: 16 };
+  const { bounds: pinBounds, opts: fitOpts } = tightFit(CITY.videos);
   const I = window.__croytopiaIntro = { state: 'start', from: null, to: null, runs: (window.__croytopiaIntro?.runs || 0) + 1 };
   map.setView([51.5072, -0.1276], 10, { animate: false });            // Greater London
   I.from = map.getZoom();
@@ -181,12 +183,15 @@ function playIntro() {
 }
 // Logo = back to the start: close video/panels, clear search + filters, replay the intro.
 // After a search settles (or on Enter): on the map, zoom to the matching pins; say so when nothing matches.
-function fitToResults(fromEnter) {
+function fitToResults(fromEnter, evenIfAll) {
   if (!CITY || !map) return;
   const vis = visibleVideos();
-  if (!vis.length) { if (state.q || state.tags.size) toast(`No memories match “${$('#q').value.trim()}”`); return; }
-  if (state.view === 'map' && (state.q || state.tags.size) && vis.length < CITY.videos.length)
-    map.flyToBounds(L.latLngBounds(vis.map(v => [v.lat, v.lng])), { padding: [60, 60], maxZoom: 17, duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.8 });
+  if (!vis.length) { if (state.q || state.tags.size) toast(`No memories match${state.q ? ` “${$('#q').value.trim()}”` : ' these tags'}`); return; }
+  if (state.view === 'map' && (evenIfAll || ((state.q || state.tags.size) && vis.length < CITY.videos.length))) {
+    const { bounds, opts } = tightFit(vis);
+    map.invalidateSize();
+    map.flyToBounds(bounds, { ...opts, maxZoom: vis.length === 1 ? 17 : 18, duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.8 });
+  }
   else if (fromEnter && state.view !== 'map') $('#view-' + state.view).scrollTop = 0;
 }
 let toastT;
@@ -218,113 +223,86 @@ function renderMarkers(vis) {
 }
 
 
-/* ---------- Crazy mode: clips play at once on the map as tiny muted looping players ----------
-   Many simultaneous YouTube iframes are heavy (each is a full player, ~decoder + network stream).
-   Strategy: only clips whose pin is inside the visible map get a player, nearest the map centre first,
-   capped at CRAZY_MAX (lower on phones); the rest show their cropped thumbnail with a neon pulse.
-   Re-evaluated on pan/zoom; players that stay in the live set are kept (not reloaded).
-   Paused (iframes removed) while the full player is open or another view is shown. */
-const CRAZY_MAX = matchMedia('(pointer:coarse)').matches ? 6 : 12;
-const crazy = { on: false, layer: null, markers: new Map(), live: new Set(), frames: new Map(), states: new Map() };
-function crazyMini(v, live) {
-  const W = 54, H = 96, a = v.width && v.height ? v.width / v.height : 9 / 16;
-  // Render the player at 3.5x and scale down: YouTube lays out its UI for the larger size, then we crop "cover".
-  const k = 3.5, BW = W * k, BH = H * k; let fw, fh; if (BW / BH > a) { fw = BW; fh = BW / a; } else { fh = BH; fw = BH * a; }
-  const inner = live
-    ? `<iframe class="cz-frame" data-vid="${v.id}" tabindex="-1" aria-hidden="true" style="width:${Math.ceil(fw)}px;height:${Math.ceil(fh)}px;left:${((BW - fw) / 2 / k).toFixed(1)}px;top:${((BH - fh) / 2 / k).toFixed(1)}px;transform:scale(${(1 / k).toFixed(4)})"
-        src="https://www.youtube-nocookie.com/embed/${v.id}?autoplay=1&mute=1&controls=0&loop=1&playlist=${v.id}&playsinline=1&rel=0&disablekb=1&iv_load_policy=3&fs=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}"
-        allow="autoplay; encrypted-media"></iframe>`
-    : `<span class="cz-still" style="${thumbStyle(v, W, H)}"></span>`;
-  return `<div class="cz ${live ? 'live' : 'still'}" style="--w:${W}px;--h:${H}px" aria-label="${esc([v.name, v.place].filter(Boolean).join(' · '))}">
-    <div class="cz-clip">${inner}</div><span class="cz-tap"></span>${pinStyle.name && v.name ? `<span class="cz-name">${esc(v.name)}</span>` : ''}${pinStyle.desc && v.blurb ? `<span class="plbl cz-desc"><i>${esc(v.blurb)}</i></span>` : ''}</div>`;
-}
-function crazyRefresh() {
-  if (!crazy.on || !map) return;
-  const paused = !$('#player').hidden || state.view !== 'map';
-  const vis = visibleVideos(), b = map.getBounds().pad(-0.02), c = map.getCenter();
-  const want = new Set(paused ? [] : vis.filter(v => b.contains(crazy.markers.get(v.id)?.getLatLng() || [v.lat, v.lng]))
-    .sort((x, y) => c.distanceTo(crazy.markers.get(x.id).getLatLng()) - c.distanceTo(crazy.markers.get(y.id).getLatLng()))
-    .slice(0, CRAZY_MAX).map(v => v.id));
-  crazy.layer.clearLayers();
-  vis.forEach(v => {
-    const m = crazy.markers.get(v.id); if (!m) return;
-    const live = want.has(v.id);
-    if (!m._czInit || m._czLive !== live) {
-      m.setIcon(L.divIcon({ className: 'vpin-wrap', iconSize: [0, 0], iconAnchor: [0, 0], html: crazyMini(v, live) }));
-      m._czInit = true; m._czLive = live;
-    }
-    m.setZIndexOffset(live ? 1000 : 0);
-    crazy.layer.addLayer(m);
-  });
-  crazy.live = want;
-  const inView = vis.filter(v => b.contains(crazy.markers.get(v.id).getLatLng())).length;
-  $('#crazy-note').hidden = false;
-  $('#crazy-note').textContent = paused ? 'Crazy mode paused' : `${want.size} playing · ${Math.max(0, inView - want.size)} more in view (max ${CRAZY_MAX} at once – zoom in to play others) · muted`;
-  // forget state for removed iframes
-  for (const [w, id] of crazy.frames) if (!want.has(id)) { crazy.frames.delete(w); crazy.states.delete(id); }
-  requestAnimationFrame(() => $$('.cz-frame').forEach(f => {
-    if (f._czListen) return; f._czListen = true;
-    f.addEventListener('load', () => { crazy.frames.set(f.contentWindow, f.dataset.vid); f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'cz', channel: 'widget' }), '*'); });
-  }));
-}
-function setCrazy(on) {
-  crazy.on = on;
-  $('#crazy-btn').setAttribute('aria-pressed', String(on)); $('#crazy-btn').classList.toggle('on', on);
-  if (on) {
-    if (!crazy.layer) {
-      crazy.layer = L.layerGroup();
-      markers.forEach((pm, id) => {
-        const m = L.marker(pm.getLatLng(), { keyboard: true, title: pm.options.title, alt: pm.options.alt });
-        m.on('click', () => openPlayer(id)); crazy.markers.set(id, m);
-      });
-      map.on('moveend zoomend', crazyRefresh);
-    }
-    map.removeLayer(layer); crazy.layer.addTo(map); crazyRefresh();
-  } else {
-    if (crazy.layer) { crazy.layer.clearLayers(); map.removeLayer(crazy.layer); crazy.markers.forEach(m => { m._czInit = false; }); }
-    crazy.frames.clear(); crazy.states.clear(); crazy.live = new Set();
-    layer.addTo(map); $('#crazy-note').hidden = true; renderMarkers(visibleVideos());
-  }
-}
-window.__croytopiaCrazy = crazy;   // read-only status for automated tests
-
-/* ---------- Full-height vertical player (autoplay muted + tap to unmute) ---------- */
+/* ---------- Full-height vertical player ----------
+   YouTube iframe with controls=0 (no YouTube control bar), oversized so YouTube's own top/bottom overlays fall
+   outside the screen, under a transparent tap layer + our own controls (mute, CC, seek, prev/next, Tags) and our
+   own captions drawn from the auto-caption cues (timed via the IFrame API's currentTime). Sound on by default:
+   we try unmuted autoplay from the tap; if the browser blocks it we fall back to muted autoplay + mute button. */
 function tagChips(tags) {
   return `<div class="chips">${tags.map(t => `<button class="chip ${state.tags.has(t.t) ? 'on' : ''}" data-tag="${esc(t.t)}" data-type="${t.type}">${esc(t.t)}</button>`).join('')}</div>`;
 }
-const PL = { id: null, state: -1, muted: true, frame: null };
+const CC_KEY = 'croytopia.cc.v1';
+const PL = { id: null, state: -1, muted: false, ytMuted: null, frame: null, time: 0, timeAt: 0, dur: 0, autoplay: '', cc: localStorage.getItem(CC_KEY) !== 'off', raf: 0, fallbackT: 0 };
 window.__croytopiaPlayer = PL;   // read-only status for automated tests
+const SPK = {
+  on: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  off: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>' };
+const OVERSCAN = 64;   // px pushed off-screen top and bottom to hide YouTube's title row / bottom overlays
 function sizeFrame() {
   const st = $('#pl-stage'), fr = PL.frame; if (!st || !fr) return;
   const v = CITY.byId[PL.id]; const a = v && v.width && v.height ? v.width / v.height : 9 / 16;
-  const W = st.clientWidth, H = st.clientHeight;
-  let w, h; if (W / H > a) { w = W; h = W / a; } else { h = H; w = H * a; }   // cover: fill stage, crop overflow, never letterbox
-  Object.assign(fr.style, { width: Math.ceil(w) + 'px', height: Math.ceil(h) + 'px', left: Math.round((W - w) / 2) + 'px', top: Math.round((H - h) / 2) + 'px' });
+  const W = st.clientWidth, H = st.clientHeight + 2 * OVERSCAN;
+  let w, h; if (W / H > a) { w = W; h = W / a; } else { h = H; w = H * a; }   // cover: fill, crop overflow, never letterbox
+  Object.assign(fr.style, { width: Math.ceil(w) + 'px', height: Math.ceil(h) + 'px', left: Math.round((W - w) / 2) + 'px', top: Math.round((st.clientHeight - h) / 2) + 'px' });
 }
 function ytCommand(func, args = []) { PL.frame?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); }
-function updateUnmute() { const b = $('#pl-unmute'); b.hidden = !PL.muted; }
+function setMuted(m) {
+  PL.muted = m; ytCommand(m ? 'mute' : 'unMute'); if (!m) ytCommand('setVolume', [100]);
+  updateMuteBtn();
+}
+function updateMuteBtn() {
+  const b = $('#pl-mute'); b.innerHTML = PL.muted ? SPK.off : SPK.on; b.classList.toggle('muted', PL.muted);
+  b.setAttribute('aria-label', PL.muted ? 'Sound is off – turn on' : 'Sound is on – mute');
+}
+function updateCC() { const b = $('#pl-cc'); b.classList.toggle('on', PL.cc); b.setAttribute('aria-pressed', String(PL.cc)); if (!PL.cc) $('#pl-caption').innerHTML = ''; }
+function curTime() { return PL.time + (PL.state === 1 && PL.timeAt ? (performance.now() - PL.timeAt) / 1000 : 0); }
+function tick() {
+  const v = CITY?.byId[PL.id]; if (!v) return;
+  const t = curTime(), dur = PL.dur || v.duration || 0;
+  if (dur) { $('#pl-bar').style.width = Math.min(100, 100 * t / dur) + '%'; $('#pl-progress').setAttribute('aria-valuenow', Math.round(100 * t / dur)); }
+  if (PL.cc) {
+    const cue = (v.cues || []).find(c => t >= c[0] && t < c[1] + 0.25);
+    const html = cue ? `<span>${esc(cue[2])}</span>` : '';
+    if ($('#pl-caption').innerHTML !== html) $('#pl-caption').innerHTML = html;
+  }
+  $('#pl-bigplay').hidden = !(PL.state === 2);
+  PL.raf = requestAnimationFrame(tick);
+}
+// One persistent YouTube player, created (paused) when the city loads. A pin tap then sends loadVideoById +
+// unMute + playVideo *synchronously inside the tap*, which is what lets browsers allow sound.
+function ensurePlayerFrame() {
+  if (PL.frame) return;
+  const first = CITY.videos[0].id, origin = encodeURIComponent(location.origin);
+  $('#pl-frame').innerHTML = `<iframe id="pl-iframe" src="https://www.youtube-nocookie.com/embed/${first}?autoplay=0&controls=0&playsinline=1&rel=0&disablekb=1&fs=0&iv_load_policy=3&cc_load_policy=0&modestbranding=1&enablejsapi=1&origin=${origin}" title="Video player" allow="autoplay; encrypted-media; picture-in-picture" tabindex="-1"></iframe>`;
+  PL.frame = $('#pl-iframe'); PL.ready = false;
+  PL.frame.addEventListener('load', () => { PL.frame?.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'croytopia', channel: 'widget' }), '*'); });
+}
 function openPlayer(id) {
   const v = CITY.byId[id]; if (!v) return;
-  selectedVideo = id; PL.id = id; PL.state = -1; PL.muted = true;
-  const origin = encodeURIComponent(location.origin);
-  $('#pl-frame').innerHTML = `<iframe id="pl-iframe" src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&playsinline=1&rel=0&loop=1&playlist=${id}&enablejsapi=1&origin=${origin}" title="${esc(v.title)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
-  PL.frame = $('#pl-iframe');
-  PL.frame.addEventListener('load', () => { PL.frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'croytopia', channel: 'widget' }), '*'); });
+  cancelAnimationFrame(PL.raf); clearTimeout(PL.fallbackT);
+  Object.assign(PL, { id, state: -1, time: 0, timeAt: 0, dur: v.duration || 0, autoplay: 'trying-unmuted', tapAt: performance.now(), userToggled: false });
+  selectedVideo = id;
+  ensurePlayerFrame();
+  if (PL.ready) {
+    // inside the user's tap: switch video and ask for sound
+    ytCommand('loadVideoById', [id, 0]); PL.muted = false; ytCommand('unMute'); ytCommand('setVolume', [100]); ytCommand('playVideo');
+  } else { PL.pendingId = id; PL.muted = false; }
+  // If it isn't playing with sound quickly, the browser blocked it: start muted (always allowed), then try sound once more.
+  PL.fallbackT = setTimeout(() => { if (PL.state !== 1) { PL.autoplay = 'muted-fallback'; setMuted(true); ytCommand('playVideo'); } }, 1500);
   const vis = visibleVideos(), i = vis.findIndex(x => x.id === id);
   $('#pl-prev').hidden = $('#pl-next').hidden = vis.length < 2 || i < 0;
-  const tx = v.transcript || '', ex = tx.length > 320 ? tx.slice(0, 320).replace(/\s+\S*$/, '') + '…' : tx;
   $('#pl-info').innerHTML = `
     <button class="pl-info-close" aria-label="Close info">✕</button>
     <h2 id="pl-title">${esc(v.place)}</h2>${v.name ? `<p class="who">${esc(v.name)}</p>` : ''}
     <div class="label">Tags · auto-generated · tap to filter</div>${tagChips(v.tags)}
     ${v.description ? `<div class="label">Description (YouTube)</div><p class="desc">${esc(v.description)}</p>` : ''}
-    ${ex ? `<div class="label">Transcript excerpt · YouTube auto-captions</div><p class="desc">“${highlight(ex)}”</p>` : ''}
-    ${tx.length > 320 ? `<details class="tx"><summary>Full transcript</summary><p>${highlight(tx)}</p></details>` : ''}
-    <p class="muted">${v.duration ? Math.round(v.duration) + 's · ' : ''}${esc(v.uploadDate || '')} · YouTube: ${esc(v.channel)}${v.legacy ? ' · from older map' : ''} · <a href="https://www.youtube.com/watch?v=${v.id}" target="_blank" rel="noopener">Open on YouTube</a></p>`;
+    ${v.transcript ? `<div class="label">Transcript · YouTube auto-captions</div><p class="tx-full">${highlight(v.transcript)}</p>` : ''}
+    <p class="muted">${v.duration ? Math.round(v.duration) + 's · ' : ''}${esc(v.uploadDate || '')} · YouTube: ${esc(v.channel)}${v.legacy ? ' · from older map' : ''}</p>`;
   togglePlInfo(false);
+  $('#pl-caption').innerHTML = ''; $('#pl-bar').style.width = '0';
   $('#player').hidden = false; document.body.classList.add('playing');
-  updateUnmute(); requestAnimationFrame(sizeFrame);
-  renderMarkers(vis); crazyRefresh();
+  updateMuteBtn(); updateCC(); sizeFrame(); PL.raf = requestAnimationFrame(tick);
+  renderMarkers(vis);
 }
 function togglePlInfo(force) {
   const panel = $('#pl-info'), open = force ?? panel.hidden;
@@ -334,23 +312,42 @@ function togglePlInfo(force) {
 function stepPlayer(d) { const vis = visibleVideos(); if (!vis.length) return; const i = vis.findIndex(x => x.id === PL.id); openPlayer(vis[(i + d + vis.length) % vis.length].id); }
 function closePlayer() {
   if ($('#player').hidden) return;
-  $('#player').hidden = true; $('#pl-frame').innerHTML = ''; PL.frame = null; PL.id = null; PL.state = -1;
-  document.body.classList.remove('playing'); selectedVideo = null; if (CITY) { renderMarkers(visibleVideos()); crazyRefresh(); }
+  cancelAnimationFrame(PL.raf); clearTimeout(PL.fallbackT);
+  ytCommand('pauseVideo'); $('#player').hidden = true; PL.id = null; PL.state = -1;
+  document.body.classList.remove('playing'); selectedVideo = null; if (CITY) renderMarkers(visibleVideos());
 }
 window.addEventListener('message', e => {
   let host = ''; try { host = new URL(e.origin).hostname; } catch {}
   if (!/(^|\.)youtube(-nocookie)?\.com$/.test(host)) return;
-  let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
-  if (crazy.frames.has(e.source)) {
-    const id = crazy.frames.get(e.source), st = d.event === 'onStateChange' ? d.info : d.info?.playerState;
-    if (typeof st === 'number') crazy.states.set(id, st);
-    return;
-  }
   if (!PL.frame || e.source !== PL.frame.contentWindow) return;
-  if (d.event === 'onStateChange') PL.state = d.info;
+  let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+  if (d.event === 'onReady') {
+    PL.ready = true; ytCommand('unloadModule', ['captions']); ytCommand('unloadModule', ['cc']);
+    if (PL.pendingId && PL.id === PL.pendingId) { ytCommand('loadVideoById', [PL.pendingId, 0]); ytCommand('unMute'); ytCommand('playVideo'); }
+    PL.pendingId = null;
+  }
+  if (!PL.id) return;   // player closed: ignore background events
+  const setState = st => {
+    if (st === 0) { ytCommand('seekTo', [0, true]); ytCommand('playVideo'); }   // loop
+    if (st === PL.state) return;
+    if (PL.state === 1) { PL.time = curTime(); }            // freeze interpolated time on pause
+    PL.state = st; PL.timeAt = performance.now();
+    if (st === 1) {
+      ytCommand('unloadModule', ['captions']);
+      if (PL.autoplay === 'trying-unmuted' && !PL.muted) PL.autoplay = 'unmuted';
+      if (PL.autoplay === 'muted-fallback' && performance.now() - PL.tapAt < 4500) {
+        PL.autoplay = 'unmute-after-start'; setMuted(false);
+        setTimeout(() => { if (PL.autoplay === 'unmute-after-start') PL.autoplay = (PL.state === 1 && !PL.muted) ? 'unmuted-after-muted-start' : PL.autoplay; }, 1500);
+      }
+    }
+    if (st === 2 && PL.autoplay === 'unmute-after-start') { PL.autoplay = 'muted (sound blocked)'; setMuted(true); ytCommand('playVideo'); }
+  };
+  if (d.event === 'onStateChange') setState(d.info);
   if (d.event === 'infoDelivery' && d.info) {
-    if ('playerState' in d.info) PL.state = d.info.playerState;
-    if ('muted' in d.info) { PL.muted = PL.ytMuted = d.info.muted; updateUnmute(); }
+    if ('currentTime' in d.info) { PL.time = d.info.currentTime; PL.timeAt = performance.now(); }
+    if ('duration' in d.info && d.info.duration) PL.dur = d.info.duration;
+    if ('muted' in d.info) { PL.ytMuted = d.info.muted; if (d.info.muted !== PL.muted) { PL.muted = d.info.muted; updateMuteBtn(); if (PL.muted && PL.autoplay === 'trying-unmuted') PL.autoplay = 'muted-by-youtube'; } }
+    if ('playerState' in d.info) setState(d.info.playerState);
   }
 });
 window.addEventListener('resize', sizeFrame);
@@ -391,15 +388,15 @@ function renderActiveTags() {
 function render() {
   const vis = visibleVideos();
   $('#count').textContent = `${vis.length}/${CITY.videos.length}`;
-  renderActiveTags(); renderMarkers(vis); renderList(vis); renderPatterns(vis); crazyRefresh();
+  renderActiveTags(); renderMarkers(vis); renderList(vis); renderPatterns(vis);
 }
 function setView(v) {
   state.view = v;
   ['map', 'list', 'patterns'].forEach(x => $('#view-' + x).hidden = x !== v);
   $$('.tab[data-view]').forEach(b => { b.classList.toggle('active', b.dataset.view === v); b.toggleAttribute('aria-current', b.dataset.view === v); });
-  closePlayer(); crazyRefresh(); if (v === 'map') setTimeout(() => map.invalidateSize(), 0);
+  closePlayer(); if (v === 'map') setTimeout(() => map.invalidateSize(), 0);
 }
-function toggleTag(t) { state.tags.has(t) ? state.tags.delete(t) : state.tags.add(t); closePlayer(); render(); }
+function toggleTag(t) { state.tags.has(t) ? state.tags.delete(t) : state.tags.add(t); closePlayer(); render(); setTimeout(() => fitToResults(false, true), 60); }
 
 /* ---------- UI bindings ---------- */
 let bound = false;
@@ -420,22 +417,25 @@ function bindUI() {
   $('#pl-info-btn').addEventListener('click', () => togglePlInfo());
   $('#pl-prev').addEventListener('click', () => stepPlayer(-1));
   $('#pl-next').addEventListener('click', () => stepPlayer(1));
-  $('#pl-unmute').addEventListener('click', () => { ytCommand('unMute'); ytCommand('setVolume', [100]); ytCommand('playVideo'); PL.muted = false; updateUnmute(); });
-  const setLive = on => { pinStyle.live = on; savePinStyle(); const cb = $('input[name=ps][value=live]'); if (cb) cb.checked = on; setCrazy(on); };
+  $('#pl-mute').addEventListener('click', () => { setMuted(!PL.muted); if (PL.state !== 1) ytCommand('playVideo'); });
+  $('#pl-cc').addEventListener('click', () => { PL.cc = !PL.cc; localStorage.setItem(CC_KEY, PL.cc ? 'on' : 'off'); updateCC(); });
+  $('#pl-tap').addEventListener('click', () => {
+    if (PL.state === 1 && PL.muted && /muted/.test(PL.autoplay) && !PL.userToggled) { PL.userToggled = true; setMuted(false); return; }  // first tap after a blocked autoplay = sound on
+    if (PL.state === 1) ytCommand('pauseVideo'); else ytCommand('playVideo');
+  });
+  $('#pl-progress').addEventListener('click', e => {
+    const r = e.currentTarget.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), dur = PL.dur || CITY.byId[PL.id]?.duration || 0;
+    if (dur) { ytCommand('seekTo', [f * dur, true]); PL.time = f * dur; PL.timeAt = performance.now(); }
+  });
   $('.brand').addEventListener('click', e => { if (!CITY || citySlugFromPath() !== CITY.city.slug) return; e.preventDefault(); resetToStart(); });
-  $('#crazy-btn').addEventListener('click', () => setLive(!pinStyle.live));
   const psBtn = $('#pinstyle-btn'), psPanel = $('#pinstyle-panel');
   psBtn.addEventListener('click', () => { psPanel.hidden = !psPanel.hidden; psBtn.setAttribute('aria-expanded', String(!psPanel.hidden)); });
   $$('input[name=ps]').forEach(cb => {
     cb.checked = !!pinStyle[cb.value];
-    cb.addEventListener('change', () => {
-      if (cb.value === 'live') return setLive(cb.checked);
-      pinStyle[cb.value] = cb.checked; savePinStyle(); renderMarkers(visibleVideos());
-      crazy.markers.forEach(m => { m._czInit = false; }); crazyRefresh();
-    });
+    cb.addEventListener('change', () => { pinStyle[cb.value] = cb.checked; savePinStyle(); renderMarkers(visibleVideos()); });
   });
   document.addEventListener('click', e => {
-    const chip = e.target.closest('[data-tag]'); if (chip) { e.stopPropagation(); toggleTag(chip.dataset.tag); if (chip.classList.contains('bar')) setView('map'); return; }
+    const chip = e.target.closest('[data-tag]'); if (chip) { e.stopPropagation(); const bar = chip.classList.contains('bar'); if (bar) setView('map'); toggleTag(chip.dataset.tag); return; }
     if (e.target.closest('.pl-info-close')) return togglePlInfo(false);
     const card = e.target.closest('.card[data-vid]');
     if (card) { const v = CITY.byId[card.dataset.vid]; setView('map'); map.setView([v.lat, v.lng], Math.max(map.getZoom(), 16)); openPlayer(v.id); }
