@@ -401,8 +401,10 @@ function animateRing(r, open, ms) {
   const pin = { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', borderRadius: Math.min(r.width, r.height) / 2 + 'px', opacity: 1 };
   const full = { left: '0px', top: '0px', width: innerWidth + 'px', height: innerHeight + 'px', borderRadius: '0px', opacity: 1 };
   ring.hidden = false;
-  const a = ring.animate(open ? [pin, full, { ...full, opacity: 0 }] : [{ ...full, opacity: 0.4 }, pin, { ...pin, opacity: 0 }],
-    { duration: ms + 160, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+  // same timing/easing as the clip-path so the ring stays exactly on the frame edge, then a short fade
+  const E = 'cubic-bezier(.2,.8,.2,1)', o = ms / (ms + 160);
+  const a = ring.animate(open ? [{ ...pin, easing: E }, { ...full, offset: o }, { ...full, opacity: 0 }] : [{ ...full, opacity: 0.4, easing: E }, { ...pin, offset: o }, { ...pin, opacity: 0 }],
+    { duration: ms + 160, fill: 'forwards' });
   a.onfinish = () => { ring.hidden = true; a.cancel(); };
 }
 function openPlayer(id, originRect) {
