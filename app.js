@@ -4,13 +4,8 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-const b64e = u => btoa(String.fromCharCode(...new Uint8Array(u)));
-const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
-const enc = new TextEncoder();
 // Search normalisation: case, accents, and iOS "smart" quotes/apostrophes (Queen’s == Queen's == Queens).
 const norm = s => String(s ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[’‘`´'"“”]/g, '').replace(/\s+/g, ' ').trim();
-const KEY_STORE = 'croytopia.key.v1';
 // Base map: Esri World Imagery (satellite) + Esri reference labels so place names remain.
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
 const SAT_ATTR = 'Imagery © <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, and the GIS User Community · Labels © Esri';
@@ -20,52 +15,11 @@ function addBaseLayers(m) {
 }
 
 let INDEX = null;            // public cities index
-let KEY = null;              // AES-GCM CryptoKey
-let CITY = null;             // decrypted city data
+let CITY = null;             // city data
 let map, layer, markers = new Map();
 const state = { q: '', tags: new Set(), view: 'map' };
 
-/* ---------- Password gate (hash compare + AES-GCM decrypt) ---------- */
-async function sha256Hex(s) { return hex(await crypto.subtle.digest('SHA-256', enc.encode(s))); }
-async function deriveKey(pw) {
-  const base = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64d(INDEX.kdf.salt), iterations: INDEX.kdf.iterations, hash: 'SHA-256' },
-    base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
-}
-async function decryptJSON(url) {
-  const box = await (await fetch(asset(url), { cache: 'no-cache' })).json();
-  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(box.iv) }, KEY, b64d(box.ct));
-  return JSON.parse(new TextDecoder().decode(pt));
-}
-async function tryStoredKey() {
-  const raw = localStorage.getItem(KEY_STORE);
-  if (!raw) return false;
-  try {
-    KEY = await crypto.subtle.importKey('raw', b64d(raw), 'AES-GCM', false, ['decrypt']);
-    await decryptJSON(INDEX.cities[0].data);   // verify still valid
-    return true;
-  } catch { localStorage.removeItem(KEY_STORE); KEY = null; return false; }
-}
-function initGate() {
-  const form = $('#gate-form'), pw = $('#gate-pw'), msg = $('#gate-msg');
-  pw.focus();
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    const val = pw.value.trim().toUpperCase();
-    msg.textContent = 'Checking…';
-    if (await sha256Hex(val) !== INDEX.gate.sha256) {
-      msg.textContent = 'Wrong password'; form.classList.remove('shake'); void form.offsetWidth; form.classList.add('shake');
-      pw.select(); return;
-    }
-    try {
-      KEY = await deriveKey(val);
-      await decryptJSON(INDEX.cities[0].data);
-      localStorage.setItem(KEY_STORE, b64e(await crypto.subtle.exportKey('raw', KEY)));
-      msg.textContent = ''; pw.value = '';
-      enterApp();
-    } catch (err) { console.error(err); msg.textContent = 'Could not unlock data'; }
-  });
-}
+async function loadJSON(url) { return (await fetch(asset(url), { cache: 'no-cache' })).json(); }
 
 /* ---------- Routing ---------- */
 // BASE = deploy path prefix from <base href> ("/" locally, "/croytopia/" on GitHub Pages)
@@ -77,7 +31,7 @@ function citySlugFromPath() {
   return p.replace(/^\/+|\/+$/g, '').split('/')[0].replace(/\.html$/, '').replace(/^(index|404|200)$/, '') || '';
 }
 async function enterApp() {
-  $('#gate').hidden = true; $('#app').hidden = false;
+  $('#app').hidden = false;
   const slug = citySlugFromPath();
   const city = INDEX.cities.find(c => c.slug === slug && c.status === 'live');
   if (!city) return showCities();
@@ -93,12 +47,12 @@ function showCities() {
       : `<div class="city soon" aria-disabled="true"><strong>${esc(c.brand)}</strong>${esc(c.name)} · coming soon (example)</div>`).join('');
   $$('a.city', v).forEach(a => a.addEventListener('click', e => { e.preventDefault(); history.pushState({}, '', a.getAttribute('href')); enterApp(); }));
 }
-window.addEventListener('popstate', () => { if (KEY) enterApp(); });
+window.addEventListener('popstate', () => enterApp());
 
 /* ---------- City ---------- */
 async function loadCity(c) {
   $('.tabbar').hidden = false; $('#view-cities').hidden = true;
-  CITY = await decryptJSON(c.data);
+  CITY = await loadJSON(c.data);
   CITY.byId = Object.fromEntries(CITY.videos.map(v => [v.id, v]));
   CITY.videos.forEach(v => {
     v._hay = norm([v.title, v.place, v.name, v.blurb, v.description, v.transcript, v.tags.map(t => t.t).join(' ')].join(' \n '));
@@ -729,6 +683,7 @@ function initAdd() {
 /* ---------- Boot ---------- */
 (async function boot() {
   INDEX = await (await fetch(asset('data/cities.json'), { cache: 'no-cache' })).json();
-  if (await tryStoredKey()) enterApp(); else initGate();
+  localStorage.removeItem('croytopia.key.v1');   // old unlock key, no longer used
+  enterApp();
 })();
 })();

@@ -17,20 +17,9 @@
 </head>
 <body>
 <!-- Password gate -->
-<section id="gate" class="gate" aria-labelledby="gate-title">
-  <img class="gate-logo" src="assets/logo-640.webp" width="640" height="96" alt="CROYTOPIA">
-  <h1 id="gate-title" class="sr-only">CROYTOPIA prototype – enter password</h1>
-  <p class="gate-sub">Private prototype</p>
-  <form id="gate-form" autocomplete="off">
-    <label for="gate-pw" class="sr-only">Password</label>
-    <input id="gate-pw" type="password" inputmode="text" autocapitalize="characters" placeholder="Password" required>
-    <button type="submit" class="neon-btn">Unlock</button>
-    <p id="gate-msg" class="gate-msg" role="alert" aria-live="assertive"></p>
-  </form>
-</section>
 
 <!-- App shell -->
-<div id="app" class="app" hidden>
+<div id="app" class="app">
   <header class="topbar">
     <a href="./" class="brand" aria-label="CROYTOPIA home"><img src="assets/logo-640.webp" width="640" height="96" alt="CROYTOPIA"></a>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
