@@ -147,6 +147,9 @@ let selectedVideo = null;
 function initMap() {
   if (map) { map.remove(); markers.clear(); }
   map = L.map('map', { zoomControl: false, attributionControl: true, tap: true, zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 120 }).setView(CITY.city.center, CITY.city.zoom);
+  { const ab = document.createElement('button'); ab.id = 'attr-btn'; ab.className = 'attr-btn'; ab.type = 'button'; ab.textContent = 'ⓘ'; ab.setAttribute('aria-label', 'Map credits'); ab.setAttribute('aria-expanded', 'false');
+    ab.addEventListener('click', e => { e.stopPropagation(); const on = $('#view-map').classList.toggle('attr-open'); ab.setAttribute('aria-expanded', String(on)); });
+    L.DomEvent.disableClickPropagation(ab); $('#view-map').appendChild(ab); map.on('click', () => { $('#view-map').classList.remove('attr-open'); ab.setAttribute('aria-expanded', 'false'); }); }
   addBaseLayers(map);
   L.control.zoom({ position: 'topright' }).addTo(map);
   layer = L.layerGroup().addTo(map);
@@ -164,15 +167,20 @@ function initMap() {
 
 }
 // Tight fit: just enough padding that the pin markers themselves (and name labels) aren't cut off.
-function tightFit(vids) {
-  const r = pinStyle.thumb ? 25 : 13, label = (pinStyle.name || pinStyle.desc) ? (pinStyle.desc ? 150 : 56) : 0;
-  return { bounds: L.latLngBounds(vids.map(v => markers.get(v.id)?.getLatLng() || [v.lat, v.lng])), opts: { paddingTopLeft: [r + 4, r + 4], paddingBottomRight: [r + 4 + label, r + 4], maxZoom: 18 } };
+// Map is full-screen under the floating header + toolbar, so pad by their heights. `loose` adds a margin (start view).
+function chromeInsets() {
+  const h = document.querySelector('.topbar').getBoundingClientRect(), t = document.querySelector('.tabbar').getBoundingClientRect();
+  return { top: Math.round(h.bottom), bottom: Math.round(innerHeight - t.top) + 34 };   // +34: pin-style button / ⓘ row
+}
+function tightFit(vids, loose = 0) {
+  const r = pinStyle.thumb ? 25 : 13, label = (pinStyle.name || pinStyle.desc) ? (pinStyle.desc ? 150 : 56) : 0, c = chromeInsets();
+  return { bounds: L.latLngBounds(vids.map(v => markers.get(v.id)?.getLatLng() || [v.lat, v.lng])), opts: { paddingTopLeft: [r + 4 + loose, c.top + r + 4 + loose], paddingBottomRight: [r + 4 + label + loose, c.bottom + r + 4 + loose], maxZoom: 18 } };
 }
 // Intro: start on all of London, then fly in to fit every pin (jump if the user prefers reduced motion).
 let introTimer;
 function playIntro() {
   clearTimeout(introTimer); map.stop?.();
-  const { bounds: pinBounds, opts: fitOpts } = tightFit(CITY.videos);
+  const { bounds: pinBounds, opts: fitOpts } = tightFit(CITY.videos, 22);
   const I = window.__croytopiaIntro = { state: 'start', from: null, to: null, runs: (window.__croytopiaIntro?.runs || 0) + 1 };
   map.setView([51.5072, -0.1276], 10, { animate: false });            // Greater London
   I.from = map.getZoom();

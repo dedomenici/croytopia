@@ -260,3 +260,18 @@ body.playing{overflow:hidden}
 .about-video .about-lite[hidden]{display:none}
 .pl-poster{position:absolute;inset:0;z-index:1;background-color:#000;background-repeat:no-repeat;pointer-events:none}
 .pl-poster[hidden]{display:none}
+
+/* full-screen map with floating chrome */
+:root{--head:calc(env(safe-area-inset-top,0px) + 70px)}
+main{position:absolute;inset:0}
+.topbar{position:absolute;top:0;left:0;right:0;background:linear-gradient(#000000c0,#00000070 65%,#0000);backdrop-filter:none;border-bottom:0;padding-bottom:.9rem}
+.view{padding-top:var(--head)}
+.view.mapview{padding:0;bottom:0}
+.tabbar{background:linear-gradient(#0000,#000000a8 40%,#000000d0);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);border-top:0}
+.leaflet-top{top:var(--head)}
+.leaflet-bottom{bottom:calc(var(--tab) + var(--safe) + 8px)}
+.pinstyle{bottom:calc(var(--tab) + var(--safe) + 10px)}
+.leaflet-control-attribution{display:none;max-width:calc(100vw - 70px);margin-right:44px!important;border-radius:8px;padding:4px 8px!important}
+.attr-open .leaflet-control-attribution{display:block}
+.attr-btn{position:absolute;z-index:450;right:10px;bottom:calc(var(--tab) + var(--safe) + 12px);width:28px;height:28px;border-radius:50%;border:1px solid #2ef2ce66;background:#030807b0;color:#9fb3b0;font-size:16px;line-height:1;padding:0;cursor:pointer}
+.attr-open .attr-btn{color:var(--neon)}
