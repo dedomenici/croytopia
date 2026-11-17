@@ -28,7 +28,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preload" as="image" href="assets/logo-640.webp" type="image/webp">
 <link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="app.css?v=9ba53e7700">
+<link rel="stylesheet" href="app.css?v=98b183b295">
 </head>
 <body>
 <!-- Password gate -->
@@ -175,7 +175,7 @@
 </div>
 <noscript><p style="color:#fff;padding:2rem">CROYTOPIA needs JavaScript.</p></noscript>
 <script src="vendor/leaflet.js" defer></script>
-<script src="app.js?v=9ba53e7700" defer></script>
+<script src="app.js?v=98b183b295" defer></script>
 <script data-goatcounter="https://dedomenici.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 <script>
   (function () {
@@ -192,6 +192,72 @@
       return ret;
     };
   })();
+</script>
+<script id="gc-events">
+(function () {
+  var PREFIX = "croytopia";
+  var queue = [];
+  var timer = 0;
+  function flush() {
+    if (!window.goatcounter || typeof window.goatcounter.count !== "function") return false;
+    while (queue.length) window.goatcounter.count(queue.shift());
+    return true;
+  }
+  function send(payload) {
+    queue.push(payload);
+    if (flush()) return;
+    if (timer) return;
+    var n = 0;
+    timer = setInterval(function () {
+      n++;
+      if (flush() || n > 40) { clearInterval(timer); timer = 0; }
+    }, 250);
+  }
+  function track(name, title) {
+    send({ path: PREFIX + "-click-" + name, title: title || name, event: true });
+  }
+  window.__gcTrack = track;
+  function slug(s) {
+    return String(s || "").toLowerCase().replace(/&[^;]+;/g, " ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "click";
+  }
+  function labelOf(el) {
+    var custom = el.getAttribute("data-goat");
+    if (custom) return custom;
+    var raw = el.getAttribute("aria-label") || el.getAttribute("title") || el.value || (el.textContent || "");
+    return String(raw).replace(/\s+/g, " ").trim().slice(0, 80);
+  }
+  document.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    var named = t.closest("[data-goat]");
+    if (named) {
+      track(named.getAttribute("data-goat"), named.getAttribute("data-goat-title") || named.getAttribute("data-goat"));
+      return;
+    }
+    var el = t.closest("button, a, [role='button'], input[type='submit'], input[type='button'], summary");
+    if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return;
+    if (el.closest("form") && el.closest("form").querySelector("input[type=password]")) return;
+    var label = labelOf(el);
+    if (!label) return;
+    if (/age\s*\d/i.test(label) || label.length > 60) {
+      track("item", "Item");
+      return;
+    }
+    if (el.tagName === "A") {
+      var href = el.getAttribute("href") || "";
+      if (/^https?:/i.test(href) || (el.host && el.host !== location.host)) {
+        try {
+          var u = new URL(href, location.href);
+          if (u.host && u.host !== location.host) {
+            track("external-" + slug(u.hostname), "External: " + u.hostname);
+            return;
+          }
+        } catch (err) {}
+      }
+    }
+    track(slug(label), label);
+  }, true);
+})();
 </script>
 </body>
 </html>

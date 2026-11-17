@@ -27,7 +27,7 @@ async function loadJSON(url) { return (await fetch(asset(url) + (String(url).inc
 
 /* ---------- Routing ---------- */
 // BASE = deploy path prefix from <base href> ("/" locally, "/croytopia/" on GitHub Pages)
-const APP_VERSION = '9ba53e7700';   // replaced at build; appended to data fetches
+const APP_VERSION = '98b183b295';   // replaced at build; appended to data fetches
 const BASE = new URL(document.baseURI).pathname.replace(/\/?$/, '/');
 const asset = p => BASE + String(p).replace(/^\/+/, '');
 function citySlugFromPath() {
@@ -595,7 +595,16 @@ function bindUI() {
     if (fit) fitToResults(true); else fitT = setTimeout(() => fitToResults(false), 900);
   };
   ['input', 'keyup', 'compositionend', 'search', 'change'].forEach(ev => q.addEventListener(ev, () => { clearTimeout(t); t = setTimeout(() => applySearch(false), 60); }));
-  $('#search-form').addEventListener('submit', e => { e.preventDefault(); clearTimeout(t); applySearch(true); closeSearch(); });
+  $('#search-form').addEventListener('submit', e => {
+    e.preventDefault(); clearTimeout(t); applySearch(true); closeSearch();
+    var qv = (q.value || '').trim();
+    if (!qv) return;
+    var hits = visibleVideos().length;
+    if (typeof window.__gcTrack === 'function') {
+      window.__gcTrack(hits ? 'search-results' : 'search-no-results',
+        (hits ? 'Search with results: ' : 'Search with no results: ') + qv.slice(0, 50));
+    }
+  });
   $('#search-btn').addEventListener('click', () => { if ($('#search-pop').hidden) openSearch(); else closeSearch(); });
   $('#search-close').addEventListener('click', () => { clearTimeout(t); applySearch(false); closeSearch(); });
   $('#about-btn').addEventListener('click', openAbout);
