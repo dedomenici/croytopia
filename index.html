@@ -176,5 +176,22 @@
 <noscript><p style="color:#fff;padding:2rem">CROYTOPIA needs JavaScript.</p></noscript>
 <script src="vendor/leaflet.js" defer></script>
 <script src="app.js?v=9ba53e7700" defer></script>
+<script data-goatcounter="https://dedomenici.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+<script>
+  (function () {
+    function goatcount() {
+      if (window.goatcounter && typeof window.goatcounter.count === "function") {
+        window.goatcounter.count({ path: location.pathname + location.search + location.hash });
+      }
+    }
+    window.addEventListener("popstate", goatcount);
+    var pushState = history.pushState;
+    history.pushState = function () {
+      var ret = pushState.apply(this, arguments);
+      goatcount();
+      return ret;
+    };
+  })();
+</script>
 </body>
 </html>
